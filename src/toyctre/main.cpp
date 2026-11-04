@@ -1,3 +1,6 @@
+#include "toyctre/lib.hpp"
 #include <print>
 
-int main() { std::println("Hello world"); }
+using toyctre::parseRegex;
+
+int main() { parseRegex("\\(hello"); }
