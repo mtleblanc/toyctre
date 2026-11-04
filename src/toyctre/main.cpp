@@ -3,4 +3,4 @@
 
 using toyctre::parseRegex;
 
-int main() { parseRegex("\\(hello"); }
+int main() { parseRegex("a*"); }

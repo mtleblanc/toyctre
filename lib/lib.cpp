@@ -135,6 +135,7 @@ constexpr auto table() {
   t(MRep, T_LPar) = 9;
   t(MRep, T_Slash) = 9;
   t(MRep, T_Bar) = 9;
+  t(MRep, T_RPar) = 9;
   t(MRep, T_Eot) = 9;
 
   //  MaybeRep -> "*?+"                   *
@@ -177,6 +178,7 @@ constexpr bool parse(std::string_view regex) {
     if (*it == stack.back()) {
       it++;
       stack.pop_back();
+      continue;
     }
     switch (tab[static_cast<size_t>(stack.back())]
                [static_cast<size_t>((*it).symbol)]) {
