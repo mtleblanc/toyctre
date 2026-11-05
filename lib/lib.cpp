@@ -1,6 +1,7 @@
 #include "toyctre/lib.hpp"
 #include <algorithm>
 #include <cassert>
+#include <initializer_list>
 #include <ranges>
 #include <string_view>
 #include <utility>
@@ -39,7 +40,7 @@ namespace toyctre {
  *  Amt               e, Rep          Norm (\|$
  */
 
-enum class Symbols {
+enum class Symbol {
   S,
   Alt,
   Cat,
@@ -66,8 +67,6 @@ enum class Symbols {
   A_AppendCat,
   A_EmptyRep,
   A_AppendRep,
-  A_EmptyUnit,
-  A_AppendUnit,
   A_RecordEscaped,
   A_RecordLit,
   A_RecordRep,
@@ -77,52 +76,80 @@ enum class Symbols {
   SIZE
 };
 
-constexpr auto productions() {
-  using enum Symbols;
-  return std::vector{
-      std::make_pair(std::vector{A_Reject, A_Reject}, std::vector{A_Reject}),
-      std::make_pair(std::vector{S, A_EmptyAlt, Alt, A_MakeRegex, T_Eot},
-                     std::vector{T_Reg, T_LPar, T_Slash}),
-      std::make_pair(std::vector{Alt, A_EmptyCat, Cat, A_AppendCat, Cats},
-                     std::vector{T_Reg, T_LPar, T_Slash}),
-      std::make_pair(
-          std::vector{Cats, T_Bar, A_EmptyCat, Cat, A_AppendCat, Cats},
-          std::vector{T_Bar}),
-      std::make_pair(std::vector{Cats}, std::vector{T_RPar, T_Eot}),
-      std::make_pair(std::vector{Cat, A_EmptyRep, A_EmptyUnit, Unt,
-                                 A_AppendUnit, Amt, A_AppendRep, Reps},
-                     std::vector{T_Reg, T_LPar, T_Slash}),
-      std::make_pair(std::vector{Reps, A_EmptyRep, A_EmptyUnit, Unt,
-                                 A_AppendUnit, Amt, A_AppendRep, Reps},
-                     std::vector{T_Reg, T_LPar, T_Slash}),
-      std::make_pair(std::vector{Reps}, std::vector{T_Bar, T_RPar, T_Eot}),
-      // TODO: separate out a lexer to avoid this
-      std::make_pair(std::vector{Unt, A_RecordLit, T_Reg}, std::vector{T_Reg}),
-      std::make_pair(std::vector{Unt, T_Slash, A_RecordEscaped, Lit},
-                     std::vector{T_Slash}),
-      std::make_pair(std::vector{Lit, T_Reg}, std::vector{T_Reg}),
-      std::make_pair(std::vector{Lit, T_Rep}, std::vector{T_Rep}),
-      std::make_pair(std::vector{Lit, T_LPar}, std::vector{T_LPar}),
-      std::make_pair(std::vector{Lit, T_RPar}, std::vector{T_RPar}),
-      std::make_pair(std::vector{Lit, T_Slash}, std::vector{T_Slash}),
-      std::make_pair(std::vector{Lit, T_Bar}, std::vector{T_Bar}),
-      std::make_pair(
-          std::vector{Unt, T_LPar, A_EmptyAlt, Alt, A_MakeGroup, T_RPar},
-          std::vector{T_LPar}),
-      std::make_pair(std::vector{Amt, A_RecordRep, T_Rep}, std::vector{T_Rep}),
-      std::make_pair(std::vector{Amt},
-                     std::vector{T_Reg, T_LPar, T_Slash, T_Bar, T_RPar, T_Eot}),
-  };
+struct Production {
+  Symbol head{};
+  std::vector<Symbol> body;
+  std::vector<Symbol> predict;
+
+  constexpr Production(Symbol head, std::vector<Symbol> body,
+                       std::vector<Symbol> predict)
+      : head{head}, body{std::move(body)}, predict{std::move(predict)} {}
+
+  constexpr auto operator|(Symbol predict) {
+    this->predict.push_back(predict);
+    return *this;
+  }
+  constexpr auto operator|(std::vector<Symbol> predict) {
+    std::copy(predict.cbegin(), predict.cend(),
+              std::back_inserter(this->predict));
+    return *this;
+  }
+};
+
+constexpr std::vector<Symbol> operator+(Symbol l, Symbol r) { return {l, r}; };
+constexpr std::vector<Symbol> operator+(std::vector<Symbol> l, Symbol r) {
+  l.push_back(r);
+  return l;
+}
+constexpr Production operator>>(Symbol head, std::vector<Symbol> body) {
+  return Production{head, std::move(body), {}};
+}
+constexpr Production operator>>(Symbol head, Symbol body) {
+  return Production{head, {body}, {}};
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wparentheses"
+constexpr auto productions() {
+  using enum Symbol;
+  const auto epsilon = std::vector<Symbol>{};
+  return std::vector<Production>{
+      A_Reject >> A_Reject | A_Reject,
+      S >> A_EmptyAlt + Alt + A_MakeRegex | T_Reg + T_LPar + T_Slash,
+      Alt >> A_EmptyCat + Cat + A_AppendCat + Cats | T_Reg + T_LPar + T_Slash,
+      Cats >> T_Bar + A_EmptyCat + Cat + A_AppendCat + Cats | T_Bar,
+      Cats >> epsilon | T_RPar + T_Eot,
+      Cat >> A_EmptyRep + Unt + Amt + A_AppendRep + Reps |
+          T_Reg + T_LPar + T_Slash,
+      Reps >> A_EmptyRep + Unt + Amt + A_AppendRep + Reps |
+          T_Reg + T_LPar + T_Slash,
+      Reps >> epsilon | T_Bar + T_RPar + T_Eot,
+      Unt >> A_RecordLit + T_Reg | T_Reg,
+      Unt >> T_Slash + A_RecordEscaped + Lit | T_Slash,
+      // TODO: maybe separate out a lexer to avoid this
+      Lit >> T_Reg | T_Reg,
+      Lit >> T_Rep | T_Rep,
+      Lit >> T_LPar | T_LPar,
+      Lit >> T_RPar | T_RPar,
+      Lit >> T_Slash | T_Slash,
+      Lit >> T_Bar | T_Bar,
+      Unt >> T_LPar + A_EmptyAlt + Alt + A_MakeGroup + T_RPar | T_LPar,
+      Amt >> A_RecordRep + T_Rep | T_Rep,
+      Amt >> epsilon | T_Reg + T_LPar + T_Slash + T_Bar + T_RPar + T_Eot,
+  };
+}
+#pragma GCC diagnostic pop
+
+constexpr auto test() {}
+
 constexpr auto table() {
-  auto ret = std::array<std::array<int, static_cast<size_t>(Symbols::SIZE)>,
-                        static_cast<size_t>(Symbols::SIZE)>{};
+  auto ret = std::array<std::array<int, static_cast<size_t>(Symbol::SIZE)>,
+                        static_cast<size_t>(Symbol::SIZE)>{};
 
   auto i = 0;
-  for (const auto &[prod, syms] : productions()) {
+  for (const auto &[nonterminal, prod, syms] : productions()) {
     for (auto sym : syms) {
-      ret[static_cast<size_t>(prod[0])][static_cast<size_t>(sym)] = i;
+      ret[static_cast<size_t>(nonterminal)][static_cast<size_t>(sym)] = i;
     }
     ++i;
   }
@@ -130,50 +157,52 @@ constexpr auto table() {
 }
 
 struct Sym {
-  Symbols symbol;
+  Symbol symbol;
   char c;
-  constexpr bool operator==(Symbols o) const { return symbol == o; };
+  constexpr bool operator==(Symbol o) const { return symbol == o; };
 };
 
 constexpr auto classify(char c) {
   switch (c) {
   case '(':
-    return Symbols::T_LPar;
+    return Symbol::T_LPar;
   case ')':
-    return Symbols::T_RPar;
+    return Symbol::T_RPar;
   case '+':
   case '*':
   case '?':
-    return Symbols::T_Rep;
+    return Symbol::T_Rep;
   case '\\':
-    return Symbols::T_Slash;
+    return Symbol::T_Slash;
   case '|':
-    return Symbols::T_Bar;
+    return Symbol::T_Bar;
   case 0:
-    return Symbols::T_Eot;
+    return Symbol::T_Eot;
   default:
-    return Symbols::T_Reg;
+    return Symbol::T_Reg;
   }
 }
 
 constexpr auto lex(char c) -> Sym { return {.symbol = classify(c), .c = c}; }
 
-using Node = std::variant<Regex, Alternative, Concatenation, Repetition, Unit>;
+using Node = std::variant<Regex, Alternative, Concatenation, Repetition>;
 
 constexpr ParseResult parse(std::string_view regex) {
+  using enum Symbol;
 
   auto r = std::string(regex);
   r.append({0});
 
-  auto syms = r | std::views::transform(lex);
+  auto syms = std::views::iota(0) | std::views::transform([regex](auto i) {
+                return i < std::ssize(regex) ? lex(regex[i]) : Sym{T_Eot, 0};
+              });
   auto it = syms.begin();
-  using enum Symbols;
-  auto sentinels = std::vector<Symbols>{S};
+  auto sentinels = std::vector<Symbol>{S};
   constexpr auto tab = table();
   auto nodes = std::vector<Node>{};
   nodes.emplace_back(std::in_place_type<Regex>);
   auto prods = productions();
-  while (it != syms.end() && !sentinels.empty()) {
+  while (!sentinels.empty()) {
     auto cur = sentinels.back();
     sentinels.pop_back();
     if (cur > ACTIONS) {
@@ -192,7 +221,7 @@ constexpr ParseResult parse(std::string_view regex) {
       case A_MakeGroup: {
         auto alt = std::move(std::get<Alternative>(nodes.back()));
         nodes.pop_back();
-        auto &unt = std::get<Unit>(nodes.back());
+        auto &unt = std::get<Repetition>(nodes.back());
         unt.regex = Regex{std::move(alt)};
         unt.isNested = true;
         break;
@@ -220,25 +249,14 @@ constexpr ParseResult parse(std::string_view regex) {
         break;
         break;
       }
-      case A_EmptyUnit: {
-        nodes.emplace_back(std::in_place_type<Unit>);
-        break;
-      }
-      case A_AppendUnit: {
-        auto unit = std::move(std::get<Unit>(nodes.back()));
-        nodes.pop_back();
-        auto &rep = std::get<Repetition>(nodes.back());
-        rep.unit = std::move(unit);
-        break;
-      }
       case A_RecordEscaped: {
-        auto &unit = std::get<Unit>(nodes.back());
+        auto &unit = std::get<Repetition>(nodes.back());
         unit.literal = (*it).c;
         unit.wasEscaped = true;
         break;
       }
       case A_RecordLit: {
-        auto &unit = std::get<Unit>(nodes.back());
+        auto &unit = std::get<Repetition>(nodes.back());
         unit.literal = (*it).c;
         break;
       }
@@ -263,28 +281,23 @@ constexpr ParseResult parse(std::string_view regex) {
     } else {
       auto rule =
           tab[static_cast<size_t>(cur)][static_cast<size_t>((*it).symbol)];
-      const auto &prod = prods[rule].first;
-      for (auto i = prod.size(); i-- > 1;) {
-        sentinels.push_back(prod[i]);
-      }
+      const auto &prod = prods[rule].body;
+      std::copy(prod.crbegin(), prod.crend(), std::back_inserter(sentinels));
     }
   }
 
-  if (it != syms.end() || !sentinels.empty()) {
+  if (*it != T_Eot) {
     return {{}, false};
   }
 
   return {std::move(std::get<Regex>(nodes.back())), true};
 }
 
-std::string Unit::toString() const {
-  return this->isNested
-             ? "(" + this->regex.toString() + ")"
-             : (this->wasEscaped ? "\\" : "") + std::string{this->literal};
-}
-
 std::string Repetition::toString() const {
-  return this->unit.toString() + (this->rep != 0 ? std::string{this->rep} : "");
+  return (this->isNested
+              ? "(" + this->regex.toString() + ")"
+              : (this->wasEscaped ? "\\" : "") + std::string{this->literal}) +
+         (this->rep != 0 ? std::string{this->rep} : "");
 }
 
 std::string Concatenation::toString() const {

@@ -24,17 +24,11 @@ struct Regex {
   std::string toString() const;
 };
 
-struct Unit {
+struct Repetition {
   Regex regex;
   char literal{};
   bool isNested{};
   bool wasEscaped{};
-
-  std::string toString() const;
-};
-
-struct Repetition {
-  Unit unit;
   char rep{};
 
   std::string toString() const;
