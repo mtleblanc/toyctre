@@ -48,6 +48,8 @@ enum class Symbols {
   Unt,
   Amt,
   Lit,
+
+  TERMINALS,
   T_Rep,
   T_LPar,
   T_RPar,
@@ -56,10 +58,76 @@ enum class Symbols {
   T_Reg,
   T_Eot,
 
-  S_Alt,
-  S_Lit,
+  ACTIONS,
+  A_EmptyAlt,
+  A_MakeRegex,
+  A_MakeGroup,
+  A_EmptyCat,
+  A_AppendCat,
+  A_EmptyRep,
+  A_AppendRep,
+  A_EmptyUnit,
+  A_AppendUnit,
+  A_RecordEscaped,
+  A_RecordLit,
+  A_RecordRep,
+
+  A_Reject,
+
   SIZE
 };
+
+constexpr auto productions() {
+  using enum Symbols;
+  return std::vector{
+      std::make_pair(std::vector{A_Reject, A_Reject}, std::vector{A_Reject}),
+      std::make_pair(std::vector{S, A_EmptyAlt, Alt, A_MakeRegex, T_Eot},
+                     std::vector{T_Reg, T_LPar, T_Slash}),
+      std::make_pair(std::vector{Alt, A_EmptyCat, Cat, A_AppendCat, Cats},
+                     std::vector{T_Reg, T_LPar, T_Slash}),
+      std::make_pair(
+          std::vector{Cats, T_Bar, A_EmptyCat, Cat, A_AppendCat, Cats},
+          std::vector{T_Bar}),
+      std::make_pair(std::vector{Cats}, std::vector{T_RPar, T_Eot}),
+      std::make_pair(std::vector{Cat, A_EmptyRep, A_EmptyUnit, Unt,
+                                 A_AppendUnit, Amt, A_AppendRep, Reps},
+                     std::vector{T_Reg, T_LPar, T_Slash}),
+      std::make_pair(std::vector{Reps, A_EmptyRep, A_EmptyUnit, Unt,
+                                 A_AppendUnit, Amt, A_AppendRep, Reps},
+                     std::vector{T_Reg, T_LPar, T_Slash}),
+      std::make_pair(std::vector{Reps}, std::vector{T_Bar, T_RPar, T_Eot}),
+      // TODO: separate out a lexer to avoid this
+      std::make_pair(std::vector{Unt, A_RecordLit, T_Reg}, std::vector{T_Reg}),
+      std::make_pair(std::vector{Unt, T_Slash, A_RecordEscaped, Lit},
+                     std::vector{T_Slash}),
+      std::make_pair(std::vector{Lit, T_Reg}, std::vector{T_Reg}),
+      std::make_pair(std::vector{Lit, T_Rep}, std::vector{T_Rep}),
+      std::make_pair(std::vector{Lit, T_LPar}, std::vector{T_LPar}),
+      std::make_pair(std::vector{Lit, T_RPar}, std::vector{T_RPar}),
+      std::make_pair(std::vector{Lit, T_Slash}, std::vector{T_Slash}),
+      std::make_pair(std::vector{Lit, T_Bar}, std::vector{T_Bar}),
+      std::make_pair(
+          std::vector{Unt, T_LPar, A_EmptyAlt, Alt, A_MakeGroup, T_RPar},
+          std::vector{T_LPar}),
+      std::make_pair(std::vector{Amt, A_RecordRep, T_Rep}, std::vector{T_Rep}),
+      std::make_pair(std::vector{Amt},
+                     std::vector{T_Reg, T_LPar, T_Slash, T_Bar, T_RPar, T_Eot}),
+  };
+}
+
+constexpr auto table() {
+  auto ret = std::array<std::array<int, static_cast<size_t>(Symbols::SIZE)>,
+                        static_cast<size_t>(Symbols::SIZE)>{};
+
+  auto i = 0;
+  for (const auto &[prod, syms] : productions()) {
+    for (auto sym : syms) {
+      ret[static_cast<size_t>(prod[0])][static_cast<size_t>(sym)] = i;
+    }
+    ++i;
+  }
+  return ret;
+}
 
 struct Sym {
   Symbols symbol;
@@ -81,92 +149,11 @@ constexpr auto classify(char c) {
     return Symbols::T_Slash;
   case '|':
     return Symbols::T_Bar;
+  case 0:
+    return Symbols::T_Eot;
   default:
     return Symbols::T_Reg;
   }
-}
-
-constexpr auto table() {
-  auto table = std::array<std::array<int, static_cast<size_t>(Symbols::SIZE)>,
-                          static_cast<size_t>(Symbols::SIZE)>{};
-  auto t = [&](Symbols s, Symbols t) -> auto & {
-    return table[static_cast<size_t>(s)][static_cast<size_t>(t)];
-  };
-  using enum Symbols;
-
-  //  S -> Alt                            Norm ( Esc
-  t(S, T_Reg) = 1;
-  t(S, T_LPar) = 1;
-  t(S, T_Slash) = 1;
-
-  //  Alt -> Concat Concat*              Norm ( Esc
-  t(Alt, T_Reg) = 2;
-  t(Alt, T_LPar) = 2;
-  t(Alt, T_Slash) = 2;
-
-  //  Concat* -> e                       )$
-  t(Cats, T_RPar) = 3;
-  t(Cats, T_Eot) = 3;
-
-  //  Concat* -> "|" Concat Concat*     |
-  t(Cats, T_Bar) = 4;
-
-  //  Concat -> Unit Amt Repetition*    Norm ( Esc
-  t(Cat, T_Reg) = 5;
-  t(Cat, T_LPar) = 5;
-  t(Cat, T_Slash) = 5;
-
-  //  Repetition* -> e                    |)$
-  t(Reps, T_Bar) = 6;
-  t(Reps, T_RPar) = 6;
-  t(Reps, T_Eot) = 6;
-
-  //  Repetition* -> Unit Amt Repetition*               Norm ( Esc
-  t(Reps, T_Reg) = 7;
-  t(Reps, T_LPar) = 7;
-  t(Reps, T_Slash) = 7;
-
-  // S_Lit -> e
-  t(S_Lit, T_Reg) = 8;
-  t(S_Lit, T_Rep) = 8;
-  t(S_Lit, T_LPar) = 8;
-  t(S_Lit, T_RPar) = 8;
-  t(S_Lit, T_Slash) = 8;
-  t(S_Lit, T_Bar) = 8;
-
-  //  Amt -> e                       Norm ( Esc|
-  t(Amt, T_Reg) = 9;
-  t(Amt, T_LPar) = 9;
-  t(Amt, T_Slash) = 9;
-  t(Amt, T_Bar) = 9;
-  t(Amt, T_RPar) = 9;
-  t(Amt, T_Eot) = 9;
-
-  //  Amt -> "*?+"                   *
-  t(Amt, T_Rep) = 10;
-
-  //  Unit -> "(" Concat Concat* S_Alt ")"     (
-  t(Unt, T_LPar) = 11;
-
-  //  Unit -> "/" Lit                     Esc
-  t(Unt, T_Slash) = 12;
-
-  //  Unit -> Norm                        Norm
-  t(Unt, T_Reg) = 13;
-
-  // S_Alt -> e
-  t(S_Alt, T_RPar) = 14;
-  //  Lit -> Norm                         Norm
-  t(Lit, T_Reg) = 15;
-
-  //  Lit -> [?+*() Esc\|]                  Rep .()\|
-  t(Lit, T_Rep) = 16;
-  t(Lit, T_LPar) = 17;
-  t(Lit, T_RPar) = 18;
-  t(Lit, T_Slash) = 19;
-  t(Lit, T_Bar) = 20;
-
-  return table;
 }
 
 constexpr auto lex(char c) -> Sym { return {.symbol = classify(c), .c = c}; }
@@ -174,222 +161,120 @@ constexpr auto lex(char c) -> Sym { return {.symbol = classify(c), .c = c}; }
 using Node = std::variant<Regex, Alternative, Concatenation, Repetition, Unit>;
 
 constexpr ParseResult parse(std::string_view regex) {
-  auto syms = regex | std::views::transform(lex);
+
+  auto r = std::string(regex);
+  r.append({0});
+
+  auto syms = r | std::views::transform(lex);
   auto it = syms.begin();
   using enum Symbols;
   auto sentinels = std::vector<Symbols>{S};
   constexpr auto tab = table();
   auto nodes = std::vector<Node>{};
   nodes.emplace_back(std::in_place_type<Regex>);
-  auto steps = 0;
+  auto prods = productions();
   while (it != syms.end() && !sentinels.empty()) {
-    std::ignore = ++steps;
-    if (*it == sentinels.back()) {
-      if (sentinels.back() == T_Reg) {
-        std::get<Repetition>(nodes.back()).unit.literal = (*it).c;
+    auto cur = sentinels.back();
+    sentinels.pop_back();
+    if (cur > ACTIONS) {
+      switch (cur) {
+      case (A_EmptyAlt): {
+        nodes.emplace_back(std::in_place_type<Alternative>);
+        break;
       }
-      it++;
-      sentinels.pop_back();
-      continue;
-    }
-    auto rule = tab[static_cast<size_t>(sentinels.back())]
-                   [static_cast<size_t>((*it).symbol)];
-    switch (rule) {
-    case 0:
-      return {{}, false};
-      //  S -> Alt
-    case 1: {
-      sentinels.back() = Alt;
-      nodes.emplace_back(std::in_place_type<Alternative>);
-      break;
-    }
+      case A_MakeRegex: {
+        auto alt = std::move(std::get<Alternative>(nodes.back()));
+        nodes.pop_back();
+        auto &reg = std::get<Regex>(nodes.back());
+        reg.alternatives = std::move(alt);
+        break;
+      }
+      case A_MakeGroup: {
+        auto alt = std::move(std::get<Alternative>(nodes.back()));
+        nodes.pop_back();
+        auto &unt = std::get<Unit>(nodes.back());
+        unt.regex = Regex{std::move(alt)};
+        unt.isNested = true;
+        break;
+      }
+      case A_EmptyCat: {
+        nodes.emplace_back(std::in_place_type<Concatenation>);
+        break;
+      }
+      case A_AppendCat: {
+        auto cat = std::move(std::get<Concatenation>(nodes.back()));
+        nodes.pop_back();
+        auto &alt = std::get<Alternative>(nodes.back());
+        alt.concatenations.push_back(std::move(cat));
+        break;
+      }
+      case A_EmptyRep: {
+        nodes.emplace_back(std::in_place_type<Repetition>);
+        break;
+      }
+      case A_AppendRep: {
+        auto rep = std::move(std::get<Repetition>(nodes.back()));
+        nodes.pop_back();
+        auto &cat = std::get<Concatenation>(nodes.back());
+        cat.repetitions.push_back(std::move(rep));
+        break;
+        break;
+      }
+      case A_EmptyUnit: {
+        nodes.emplace_back(std::in_place_type<Unit>);
+        break;
+      }
+      case A_AppendUnit: {
+        auto unit = std::move(std::get<Unit>(nodes.back()));
+        nodes.pop_back();
+        auto &rep = std::get<Repetition>(nodes.back());
+        rep.unit = std::move(unit);
+        break;
+      }
+      case A_RecordEscaped: {
+        auto &unit = std::get<Unit>(nodes.back());
+        unit.literal = (*it).c;
+        unit.wasEscaped = true;
+        break;
+      }
+      case A_RecordLit: {
+        auto &unit = std::get<Unit>(nodes.back());
+        unit.literal = (*it).c;
+        break;
+      }
+      case A_RecordRep: {
+        auto &rep = std::get<Repetition>(nodes.back());
+        rep.rep = (*it).c;
+        break;
+      }
 
-    //  Alt -> Concat Concat*
-    case 2: {
-      sentinels.back() = Cats;
-      sentinels.push_back(Cat);
-      nodes.emplace_back(std::in_place_type<Concatenation>);
-      break;
-    }
+      case A_Reject: {
+        return {{}, false};
+      }
+      default:
+        std::unreachable();
+      }
 
-    //  Concat* -> e
-    case 3: {
-      sentinels.pop_back();
-      auto cat = std::move(std::get<Concatenation>(nodes.back()));
-      nodes.pop_back();
-      std::get<Alternative>(nodes.back())
-          .concatenations.emplace_back(std::move(cat));
-      break;
-    }
-
-    //  Concat* -> "|" Concat Concat*
-    case 4: {
-      sentinels.push_back(Cat);
-      sentinels.push_back(T_Bar);
-      auto cat = std::move(std::get<Concatenation>(nodes.back()));
-      nodes.pop_back();
-      std::get<Alternative>(nodes.back())
-          .concatenations.push_back(std::move(cat));
-      nodes.emplace_back(std::in_place_type<Concatenation>);
-      break;
-    }
-
-    //  Concat -> Unit Amt Repetition*
-    case 5: {
-      sentinels.back() = Reps;
-      sentinels.push_back(Amt);
-      sentinels.push_back(Unt);
-      nodes.emplace_back(std::in_place_type<Repetition>);
-      break;
-    }
-
-    //  Repetition* -> e
-    case 6: {
-      sentinels.pop_back();
-      auto rep = std::move(std::get<Repetition>(nodes.back()));
-      nodes.pop_back();
-      std::get<Concatenation>(nodes.back())
-          .repetitions.push_back(std::move(rep));
-      break;
-    }
-
-    //  Repetition* -> Unit Amt Repetition*
-    case 7: {
-      sentinels.push_back(Amt);
-      sentinels.push_back(Unt);
-      auto rep = std::move(std::get<Repetition>(nodes.back()));
-      nodes.pop_back();
-      std::get<Concatenation>(nodes.back())
-          .repetitions.push_back(std::move(rep));
-      nodes.emplace_back(std::in_place_type<Repetition>);
-      break;
-    }
-
-    // S_Lit -> e
-    case 8: {
-      sentinels.pop_back();
-      auto &unit = std::get<Repetition>(nodes.back()).unit;
-      unit.literal = (*it).c;
-      unit.wasEscaped = true;
-      break;
-    }
-
-    //  Amt -> e
-    case 9: {
-      sentinels.pop_back();
-      break;
-    }
-
-    //  Amt -> "*+?"
-    case 10: {
-      sentinels.back() = T_Rep;
-      std::get<Repetition>(nodes.back()).rep = (*it).c;
-      break;
-    }
-
-    //  Unit -> "(" Alt ")"
-    case 11: {
-      sentinels.back() = T_RPar;
-      sentinels.push_back(S_Alt);
-      sentinels.push_back(Alt);
-      sentinels.push_back(T_LPar);
-      nodes.emplace_back(std::in_place_type<Alternative>);
-      break;
-    }
-
-    //  Unit -> "\" S_Lit Lit
-    case 12: {
-      sentinels.back() = Lit;
-      sentinels.push_back(S_Lit);
-      sentinels.push_back(T_Slash);
-      break;
-    }
-
-    //  Unit -> Norm
-    case 13: {
-      sentinels.back() = T_Reg;
-      break;
-    }
-
-    // S_Alt -> e
-    case 14: {
-      sentinels.pop_back();
-      auto alt = std::move(std::get<Alternative>(nodes.back()));
-      nodes.pop_back();
-      auto &unit = std::get<Repetition>(nodes.back()).unit;
-      unit.regex.alternatives = alt;
-      unit.isNested = true;
-      break;
-    }
-
-    //  Lit -> Norm
-    case 15: {
-      sentinels.back() = T_Reg;
-      break;
-    }
-
-    //  Lit -> [?+*() Esc |]
-    case 16: {
-      sentinels.back() = T_Rep;
-      break;
-    }
-    case 17: {
-      sentinels.back() = T_LPar;
-      break;
-    }
-    case 18: {
-      sentinels.back() = T_RPar;
-      break;
-    }
-    case 19: {
-      sentinels.back() = T_Slash;
-      break;
-    }
-    case 20: {
-      sentinels.back() = T_Bar;
-      break;
-    }
-    default:
-      std::unreachable();
+    } else if (cur > TERMINALS) {
+      if (*it != cur) {
+        return {{}, false};
+      }
+      ++it;
+    } else {
+      auto rule =
+          tab[static_cast<size_t>(cur)][static_cast<size_t>((*it).symbol)];
+      const auto &prod = prods[rule].first;
+      for (auto i = prod.size(); i-- > 1;) {
+        sentinels.push_back(prod[i]);
+      }
     }
   }
 
-  if (it != syms.end()) {
+  if (it != syms.end() || !sentinels.empty()) {
     return {{}, false};
   }
 
-  while (!sentinels.empty()) {
-
-    switch (tab[static_cast<size_t>(sentinels.back())]
-               [static_cast<size_t>(T_Eot)]) {
-    case 3: {
-      sentinels.pop_back();
-      auto cat = std::move(std::get<Concatenation>(nodes.back()));
-      nodes.pop_back();
-      std::get<Alternative>(nodes.back())
-          .concatenations.emplace_back(std::move(cat));
-      break;
-    }
-    case 6: {
-      sentinels.pop_back();
-      auto rep = std::move(std::get<Repetition>(nodes.back()));
-      nodes.pop_back();
-      std::get<Concatenation>(nodes.back())
-          .repetitions.push_back(std::move(rep));
-      break;
-    }
-    case 9:
-      sentinels.pop_back();
-      break;
-    default:
-      return {{}, false};
-    }
-  }
-  auto alt = std::move(std::get<Alternative>(nodes.back()));
-  nodes.pop_back();
-  auto reg = std::move(std::get<Regex>(nodes.back()));
-  reg.alternatives = alt;
-  return {std::move(reg), true};
+  return {std::move(std::get<Regex>(nodes.back())), true};
 }
 
 std::string Unit::toString() const {
