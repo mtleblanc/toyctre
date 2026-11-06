@@ -1,6 +1,5 @@
 #include "toyctre/lib.hpp"
+#include "toyctre/matcher.hpp"
 #include <print>
 
-using toyctre::parseRegex;
-
-int main() { parseRegex("a"); }
+int main() { toyctre::test(); }
