@@ -1,7 +1,9 @@
 #include "toyctre/lib.hpp"
 #include <algorithm>
+#include <bitset>
 #include <cassert>
 #include <initializer_list>
+#include <print>
 #include <ranges>
 #include <string_view>
 #include <utility>
@@ -9,37 +11,6 @@
 #include <vector>
 
 namespace toyctre {
-/*
- *  Productions:
- *
- *  S -> Alt                            Norm (\
- *  Alt -> Concat Concat*               Norm (\
- *  Concat* -> e                        )$
- *  Concat* -> "|" Concat Concat*       |
- *  Concat -> Unit Amt Repetition*       Norm (\
- *  Repetition* -> e                    |)$
- *  Repetition* -> Unit Amt Repetition* Norm (\
- *  Amt -> e                            Norm (\|
- *  Amt -> "*+?"                        Rep
- *  Unit -> "(" Concat Concat* ")"      (
- *  Unit -> "\" Lit                     \
- *  Unit -> [^?+*()\\|]                 Norm
- *  Lit -> [^?+*()\\|]                  Norm
- *  Lit -> [?+*()\\|]                   Rep ()\|
- *
- *
- *  NT                Fi(NT)          Fo(NT)
- *  S                 Norm, (\        $
- *  Alt               Norm, (\        )$
- *  Concat            Norm, (\        |)$
- *  Repetition        Norm, (\        Norm (\|)$
- *  Unit              Norm, (\        Norm Rep (\|$
- *  Lit               All             Norm Rep (\|$
- *  Concat*           e, |            )$
- *  Repetition*       e, Norm, (\     |)$
- *  Amt               e, Rep          Norm (\|$
- */
-
 enum class Symbol {
   S,
   Alt,
@@ -76,24 +47,13 @@ enum class Symbol {
   SIZE
 };
 
+namespace detail {
 struct Production {
   Symbol head{};
   std::vector<Symbol> body;
-  std::vector<Symbol> predict;
 
-  constexpr Production(Symbol head, std::vector<Symbol> body,
-                       std::vector<Symbol> predict)
-      : head{head}, body{std::move(body)}, predict{std::move(predict)} {}
-
-  constexpr auto operator|(Symbol predict) {
-    this->predict.push_back(predict);
-    return *this;
-  }
-  constexpr auto operator|(std::vector<Symbol> predict) {
-    std::copy(predict.cbegin(), predict.cend(),
-              std::back_inserter(this->predict));
-    return *this;
-  }
+  constexpr Production(Symbol head, std::vector<Symbol> body)
+      : head{head}, body{std::move(body)} {}
 };
 
 constexpr std::vector<Symbol> operator+(Symbol l, Symbol r) { return {l, r}; };
@@ -101,60 +61,209 @@ constexpr std::vector<Symbol> operator+(std::vector<Symbol> l, Symbol r) {
   l.push_back(r);
   return l;
 }
-constexpr Production operator>>(Symbol head, std::vector<Symbol> body) {
-  return Production{head, std::move(body), {}};
+constexpr Production operator>>=(Symbol head, std::vector<Symbol> body) {
+  return Production{head, std::move(body)};
 }
-constexpr Production operator>>(Symbol head, Symbol body) {
-  return Production{head, {body}, {}};
+constexpr Production operator>>=(Symbol head, Symbol body) {
+  return Production{head, {body}};
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wparentheses"
 constexpr auto productions() {
   using enum Symbol;
   const auto epsilon = std::vector<Symbol>{};
   return std::vector<Production>{
-      A_Reject >> A_Reject | A_Reject,
-      S >> A_EmptyAlt + Alt + A_MakeRegex | T_Reg + T_LPar + T_Slash,
-      Alt >> A_EmptyCat + Cat + A_AppendCat + Cats | T_Reg + T_LPar + T_Slash,
-      Cats >> T_Bar + A_EmptyCat + Cat + A_AppendCat + Cats | T_Bar,
-      Cats >> epsilon | T_RPar + T_Eot,
-      Cat >> A_EmptyRep + Unt + Amt + A_AppendRep + Reps |
-          T_Reg + T_LPar + T_Slash,
-      Reps >> A_EmptyRep + Unt + Amt + A_AppendRep + Reps |
-          T_Reg + T_LPar + T_Slash,
-      Reps >> epsilon | T_Bar + T_RPar + T_Eot,
-      Unt >> A_RecordLit + T_Reg | T_Reg,
-      Unt >> T_Slash + A_RecordEscaped + Lit | T_Slash,
+      A_Reject >>= A_Reject,
+      S >>= A_EmptyAlt + Alt + A_MakeRegex,
+      Alt >>= A_EmptyCat + Cat + A_AppendCat + Cats,
+      Cats >>= T_Bar + A_EmptyCat + Cat + A_AppendCat + Cats,
+      Cats >>= epsilon,
+      Cat >>= A_EmptyRep + Unt + Amt + A_AppendRep + Reps,
+      Reps >>= A_EmptyRep + Unt + Amt + A_AppendRep + Reps,
+      Reps >>= epsilon,
+      Unt >>= A_RecordLit + T_Reg,
+      Unt >>= T_Slash + A_RecordEscaped + Lit,
       // TODO: maybe separate out a lexer to avoid this
-      Lit >> T_Reg | T_Reg,
-      Lit >> T_Rep | T_Rep,
-      Lit >> T_LPar | T_LPar,
-      Lit >> T_RPar | T_RPar,
-      Lit >> T_Slash | T_Slash,
-      Lit >> T_Bar | T_Bar,
-      Unt >> T_LPar + A_EmptyAlt + Alt + A_MakeGroup + T_RPar | T_LPar,
-      Amt >> A_RecordRep + T_Rep | T_Rep,
-      Amt >> epsilon | T_Reg + T_LPar + T_Slash + T_Bar + T_RPar + T_Eot,
+      Lit >>= T_Reg,
+      Lit >>= T_Rep,
+      Lit >>= T_LPar,
+      Lit >>= T_RPar,
+      Lit >>= T_Slash,
+      Lit >>= T_Bar,
+      Unt >>= T_LPar + A_EmptyAlt + Alt + A_MakeGroup + T_RPar,
+      Amt >>= A_RecordRep + T_Rep,
+      Amt >>= epsilon,
   };
 }
-#pragma GCC diagnostic pop
 
-constexpr auto test() {}
+template <size_t BodySize> struct FixedSizedProduction {
+  template <typename T, size_t N> struct InPlace {
+    std::array<T, N> elems{};
+    size_t used{};
+  };
+  Symbol head{};
+  InPlace<Symbol, BodySize> body_;
 
-constexpr auto table() {
-  auto ret = std::array<std::array<int, static_cast<size_t>(Symbol::SIZE)>,
-                        static_cast<size_t>(Symbol::SIZE)>{};
-
-  auto i = 0;
-  for (const auto &[nonterminal, prod, syms] : productions()) {
-    for (auto sym : syms) {
-      ret[static_cast<size_t>(nonterminal)][static_cast<size_t>(sym)] = i;
-    }
-    ++i;
+  [[nodiscard]] constexpr auto body() const noexcept {
+    return std::span{body_.elems.data(), body_.used};
   }
+
+  constexpr FixedSizedProduction() = default;
+
+  constexpr FixedSizedProduction(const Production &o) {
+    head = o.head;
+
+    assert(o.body.size() <= BodySize);
+    std::ranges::copy(o.body, body_.elems.begin());
+    body_.used = o.body.size();
+  }
+};
+
+template <size_t ProductionSize, size_t BodySize>
+consteval auto fixedSizedProductions() {
+  auto ret = std::array<FixedSizedProduction<BodySize>, ProductionSize>{};
+  auto prods = productions();
+  assert(prods.size() == ProductionSize);
+  std::ranges::copy(
+      std::views::transform(
+          prods, [](auto &p) { return FixedSizedProduction<BodySize>{p}; }),
+      ret.begin());
   return ret;
 }
+
+consteval size_t requiredBodySize(const std::vector<Production> &productions) {
+  return std::ranges::max(std::views::transform(
+      productions, [](const auto &p) { return p.body.size(); }));
+}
+} // namespace detail
+
+constexpr auto productions = []() {
+  constexpr auto szs = []() {
+    auto p = detail::productions();
+    return std::make_pair(p.size(), requiredBodySize(p));
+  }();
+  return detail::fixedSizedProductions<szs.first, szs.second>();
+}();
+
+constexpr auto NSymbols = static_cast<size_t>(Symbol::SIZE);
+
+template <typename E, typename V, size_t N> struct EnumIndexedArray {
+  std::array<V, N> elems{};
+
+  template <typename Self> constexpr auto &&operator[](this Self &&self, E e) {
+    return std::forward<Self>(self).elems[static_cast<size_t>(e)];
+  }
+};
+
+constexpr auto table = []() {
+  using LL1Table =
+      EnumIndexedArray<Symbol, EnumIndexedArray<Symbol, size_t, NSymbols>,
+                       NSymbols>;
+  using SetTable =
+      EnumIndexedArray<Symbol, std::bitset<NSymbols + 1>, NSymbols>;
+
+  constexpr auto epsilon = NSymbols;
+  constexpr auto terminals = static_cast<size_t>(Symbol::TERMINALS);
+  constexpr auto actions = static_cast<size_t>(Symbol::ACTIONS);
+  auto ret = LL1Table{};
+  auto firsts = SetTable{};
+  auto changed = false;
+  do {
+    changed = false;
+    for (const auto &p : productions) {
+      auto &fi = firsts[p.head];
+      auto orig = fi;
+      auto setEpsilon = true;
+      for (auto s : p.body()) {
+        if (s > Symbol::ACTIONS) {
+          continue;
+        }
+        if (s > Symbol::TERMINALS) {
+          fi.set(static_cast<size_t>(s));
+          setEpsilon = false;
+          break;
+        }
+        auto o = firsts[s];
+        if (!o.test(epsilon)) {
+          fi |= o;
+          setEpsilon = false;
+          break;
+        }
+        o.reset(epsilon);
+        fi |= o;
+      }
+      if (setEpsilon) {
+        fi.set(epsilon);
+      }
+      changed |= fi != orig;
+    }
+  } while (changed);
+
+  {
+    auto i = terminals;
+    for (; i < actions; ++i) {
+      firsts[static_cast<Symbol>(i)].set(i);
+    }
+    for (; i < NSymbols; ++i) {
+      firsts[static_cast<Symbol>(i)].set(epsilon);
+    }
+  }
+
+  auto first = [&](auto word) {
+    auto fi = std::bitset<epsilon + 1>{};
+    fi.set(epsilon);
+    for (auto s : word) {
+      if (!fi.test(epsilon))
+        break;
+      fi.reset(epsilon);
+      fi |= firsts[s];
+    }
+    return fi;
+  };
+
+  auto follows = SetTable{};
+
+  follows[Symbol::S].set(static_cast<size_t>(Symbol::T_Eot));
+
+  do {
+    changed = false;
+    for (const auto &p : productions) {
+      auto body = p.body();
+      auto &fo_head = follows[p.head];
+      while (body.size()) {
+        auto cur = body.front();
+        auto &fo = follows[cur];
+        auto orig = fo;
+        body = body.subspan(1);
+        auto fi = first(body);
+        fo |= fi;
+        if (fi.test(epsilon)) {
+          fo |= fo_head;
+        }
+        fo.reset(epsilon);
+        changed |= fo != orig;
+      }
+    }
+  } while (changed);
+
+  for (auto pi = 0uz; pi < productions.size(); ++pi) {
+    const auto &p = productions[pi];
+    auto fi = first(p.body());
+    if (fi.test(epsilon)) {
+      fi |= follows[p.head];
+    }
+
+    for (auto i = terminals + 1; i < actions; ++i) {
+      if (fi.test(i)) {
+        auto &entry = ret[p.head][static_cast<Symbol>(i)];
+        if (entry != 0 && entry != pi) {
+          throw "LL1 conflict";
+        }
+        entry = pi;
+      }
+    }
+  }
+  return ret;
+}();
 
 struct Sym {
   Symbol symbol;
@@ -176,8 +285,6 @@ constexpr auto classify(char c) {
     return Symbol::T_Slash;
   case '|':
     return Symbol::T_Bar;
-  case 0:
-    return Symbol::T_Eot;
   default:
     return Symbol::T_Reg;
   }
@@ -190,18 +297,13 @@ using Node = std::variant<Regex, Alternative, Concatenation, Repetition>;
 constexpr ParseResult parse(std::string_view regex) {
   using enum Symbol;
 
-  auto r = std::string(regex);
-  r.append({0});
-
   auto syms = std::views::iota(0) | std::views::transform([regex](auto i) {
                 return i < std::ssize(regex) ? lex(regex[i]) : Sym{T_Eot, 0};
               });
   auto it = syms.begin();
   auto sentinels = std::vector<Symbol>{S};
-  constexpr auto tab = table();
   auto nodes = std::vector<Node>{};
   nodes.emplace_back(std::in_place_type<Regex>);
-  auto prods = productions();
   while (!sentinels.empty()) {
     auto cur = sentinels.back();
     sentinels.pop_back();
@@ -279,10 +381,9 @@ constexpr ParseResult parse(std::string_view regex) {
       }
       ++it;
     } else {
-      auto rule =
-          tab[static_cast<size_t>(cur)][static_cast<size_t>((*it).symbol)];
-      const auto &prod = prods[rule].body;
-      std::copy(prod.crbegin(), prod.crend(), std::back_inserter(sentinels));
+      auto rule = table[cur][(*it).symbol];
+      auto body = productions[rule].body();
+      std::copy(body.crbegin(), body.crend(), std::back_inserter(sentinels));
     }
   }
 
@@ -322,5 +423,4 @@ std::string Alternative::toString() const {
 std::string Regex::toString() const { return this->alternatives.toString(); }
 
 ParseResult parseRegex(std::string_view regex) { return parse(regex); }
-
 } // namespace toyctre
