@@ -1,9 +1,12 @@
 #include "toyctre/matcher.hpp"
 #include "toyctre/lib.hpp"
+#include <algorithm>
 #include <array>
 #include <cassert>
+#include <chrono>
 #include <format>
 #include <print>
+#include <ranges>
 #include <set>
 #include <stdexcept>
 
@@ -129,13 +132,35 @@ public:
   }
 
   auto accepts(std::set<size_t> states) const {
-
     for (auto a : accept) {
       if (states.contains(a)) {
         return true;
       }
     }
     return false;
+  }
+
+  auto step(size_t c, const std::set<size_t> &states) const {
+    auto ret = std::set<size_t>{};
+    for (auto s : states) {
+      for (auto t : (*this)[s, c]) {
+        ret.insert(t);
+      }
+    }
+    return ret;
+  }
+
+  std::set<size_t> epsilonClosure(const std::set<size_t> &states) {
+    auto next = states;
+    for (auto s : states) {
+      for (auto t : (*this)[s, NFA::epsilon]) {
+        next.insert(t);
+      }
+    }
+    for (auto s : states) {
+      next.insert(s);
+    }
+    return next == states ? next : epsilonClosure(next);
   }
 
   static std::string commaDelim(const auto &r) {
@@ -175,19 +200,24 @@ NFA forNode(const Repetition &regex);
 
 NFA forNode(const Regex &reg) { return forNode(reg.alternatives); }
 NFA forNode(const Alternative &alt) {
-  auto ret = NFA{1};
-  for (const auto &c : alt.concatenations) {
-    ret = ret + forNode(c);
-  }
-  return ret;
+
+  auto ret = std::ranges::fold_left_first(
+      alt.concatenations |
+          std::views::transform([](const auto &c) { return forNode(c); }),
+      [](auto &&nfa, auto &&c) {
+        return std::forward<decltype(nfa)>(nfa) + std::forward<decltype(c)>(c);
+      });
+  return *ret;
 }
 
 NFA forNode(const Concatenation &cat) {
-  auto ret = NFA{};
-  for (const auto &r : cat.repetitions) {
-    ret = ret * forNode(r);
-  }
-  return ret;
+  auto ret = std::ranges::fold_left_first(
+      cat.repetitions |
+          std::views::transform([](const auto &c) { return forNode(c); }),
+      [](auto &&nfa, auto &&c) {
+        return std::forward<decltype(nfa)>(nfa) + std::forward<decltype(c)>(c);
+      });
+  return *ret;
 }
 
 NFA forNode(const Repetition &regex) {
@@ -210,48 +240,56 @@ NFA forNode(const Repetition &regex) {
 
 } // namespace
 
+std::string repeat(std::string_view s, int n) {
+  auto ret = std::string{};
+  for (int i = 0; i < n; ++i) {
+    ret += s;
+  }
+  return ret;
+}
+
 void test() {
   // auto r =
   //     NFA::of('a') * NFA::of('b') * NFA::of('c') + NFA::of('d') *
   //     NFA::of('e');
   using namespace std::literals::string_view_literals;
-  auto pat = "a\0b"sv;
-  auto m = "ab";
+  auto pat = repeat("abc", 200);
   // auto r = NFA{};
-  auto r = forNode(parseRegex(pat).regex);
-  std::println("{}", r.toString());
-  std::println("Matches {}? {}", m, match(parseRegex(pat).regex, m));
-}
+  using std::chrono::duration;
+  using std::chrono::duration_cast;
+  using std::chrono::high_resolution_clock;
+  using std::chrono::milliseconds;
 
-auto step(size_t c, const NFA &nfa, const std::set<size_t> &states) {
-  auto ret = std::set<size_t>{};
-  for (auto s : states) {
-    for (auto t : nfa[s, c]) {
-      ret.insert(t);
-    }
-  }
-  return ret;
-}
+  auto t1 = high_resolution_clock::now();
+  auto regex = parseRegex(pat).regex;
+  auto t2 = high_resolution_clock::now();
+  auto ms_int = duration_cast<milliseconds>(t2 - t1);
+  std::println("Parsing took {}", ms_int);
 
-std::set<size_t> epsilonClosure(const NFA &nfa,
-                                const std::set<size_t> &states) {
-  auto next = states;
-  for (auto s : states) {
-    for (auto t : nfa[s, NFA::epsilon]) {
-      next.insert(t);
-    }
+  t1 = high_resolution_clock::now();
+  auto nfa = forNode(regex);
+  t2 = high_resolution_clock::now();
+  ms_int = duration_cast<milliseconds>(t2 - t1);
+  std::println("Building NFA took {}", ms_int);
+
+  t1 = high_resolution_clock::now();
+  auto states = nfa.epsilonClosure(std::set<size_t>{0});
+  for (auto c : pat) {
+    states = nfa.epsilonClosure(nfa.step(c, states));
   }
-  for (auto s : states) {
-    next.insert(s);
-  }
-  return next == states ? next : epsilonClosure(nfa, next);
+  auto res = nfa.accepts(states);
+  t2 = high_resolution_clock::now();
+  ms_int = duration_cast<milliseconds>(t2 - t1);
+  std::println("Matching pat took {}", ms_int);
+  // std::println("{}", nfa.toString());
+  std::println("Matches {}? {}", pat, res);
 }
 
 bool match(const Regex &regex, std::string_view text) {
   auto nfa = forNode(regex);
-  auto states = epsilonClosure(nfa, std::set<size_t>{0});
+  auto states = nfa.epsilonClosure(std::set<size_t>{0});
   for (auto c : text) {
-    states = epsilonClosure(nfa, step(c, nfa, states));
+    states = nfa.epsilonClosure(nfa.step(c, states));
   }
   return nfa.accepts(states);
 }
