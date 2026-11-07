@@ -324,7 +324,7 @@ constexpr ParseResult parse(std::string_view regex) {
         auto alt = std::move(std::get<Alternative>(nodes.back()));
         nodes.pop_back();
         auto &unt = std::get<Repetition>(nodes.back());
-        unt.regex = Regex{std::move(alt)};
+        unt.regex = std::move(alt);
         unt.isNested = true;
         break;
       }

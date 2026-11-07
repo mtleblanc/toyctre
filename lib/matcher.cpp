@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <chrono>
+#include <deque>
 #include <format>
 #include <print>
 #include <ranges>
@@ -11,6 +12,181 @@
 #include <stdexcept>
 
 namespace toyctre {
+
+namespace {
+
+struct Node {
+  static constexpr auto ALTERNATIVE = 256;
+  static constexpr auto ACCEPT = 257;
+  int c{};
+  Node *next{};
+  Node *nextl{};
+  int gen{};
+
+  Node(int c) : c{c} {}
+};
+
+struct Fragment;
+class NfaBuilder {
+  std::deque<Node> nodes{};
+
+public:
+  Fragment of(char c);
+  Fragment of(const Regex &reg);
+  Fragment of(const Alternative &alt);
+  Fragment of(const Concatenation &cat);
+  Fragment of(const Repetition &rep);
+  Node *match(char c) { return &nodes.emplace_back(c); }
+  Node *alt() { return &nodes.emplace_back(Node::ALTERNATIVE); }
+  Node *accept() { return &nodes.emplace_back(Node::ACCEPT); }
+};
+
+struct Fragment {
+  NfaBuilder *builder;
+  Node *start{};
+  std::vector<Node **> dangling{};
+  void patch(Node *n) {
+    for (auto p : dangling) {
+      *p = n;
+    }
+    dangling.clear();
+  }
+
+  void append(const Fragment &o) {
+    dangling.insert(dangling.end(), o.dangling.begin(), o.dangling.end());
+  }
+
+  Fragment operator*(this Fragment lhs, Fragment rhs) {
+    lhs.patch(rhs.start);
+    lhs.dangling = std::move(rhs.dangling);
+    return lhs;
+  }
+
+  Fragment operator+(this Fragment lhs, const Fragment &rhs) {
+    auto alt = lhs.builder->alt();
+    alt->next = lhs.start;
+    alt->nextl = rhs.start;
+    lhs.start = alt;
+    lhs.append(rhs);
+    return lhs;
+  }
+
+  Fragment operator++(this Fragment lhs, int) {
+    auto alt = lhs.builder->alt();
+    lhs.patch(alt);
+    alt->next = lhs.start;
+    lhs.dangling.push_back(&alt->nextl);
+    return lhs;
+  }
+
+  Fragment maybe(this Fragment lhs) {
+    auto alt = lhs.builder->alt();
+    lhs.dangling.push_back(&alt->nextl);
+    alt->next = lhs.start;
+    lhs.start = alt;
+    return lhs;
+  }
+
+  Fragment star(this Fragment lhs) {
+    auto alt = lhs.builder->alt();
+    lhs.patch(alt);
+    lhs.dangling.push_back(&alt->nextl);
+    alt->next = lhs.start;
+    lhs.start = alt;
+    return lhs;
+  }
+
+  Fragment accept(this Fragment lhs) {
+    auto acc = lhs.builder->accept();
+    lhs.patch(acc);
+    return lhs;
+  }
+  bool match(std::string_view text) const {
+    static int gen = 1;
+    std::vector<Node *> currentNodes{};
+    std::vector<Node *> nextNodes{};
+    auto queue = [&nextNodes](this auto &&q, Node *s, int gen) {
+      if (s == nullptr || s->gen == gen) {
+        return;
+      };
+      s->gen = gen;
+      nextNodes.push_back(s);
+      if (s->c == Node::ALTERNATIVE) {
+        q(s->next, gen);
+        q(s->nextl, gen);
+      }
+    };
+
+    queue(start, gen);
+    std::swap(nextNodes, currentNodes);
+    ++gen;
+    nextNodes.clear();
+    for (auto c : text) {
+      for (auto i = 0uz; i < currentNodes.size(); ++i) {
+        auto node = currentNodes[i];
+        if (node->c == c) {
+          queue(node->next, gen);
+        }
+      }
+      std::swap(nextNodes, currentNodes);
+      ++gen;
+      nextNodes.clear();
+    }
+
+    return std::ranges::any_of(
+        currentNodes, [](auto node) { return node->c == Node::ACCEPT; });
+  }
+};
+
+Fragment NfaBuilder::of(char c) {
+  auto start = match(c);
+  return {this, start, {&start->next}};
+}
+
+Fragment NfaBuilder::of(const Regex &reg) {
+  return of(reg.alternatives).accept();
+}
+
+Fragment NfaBuilder::of(const Alternative &alt) {
+  auto fs = alt.concatenations |
+            std::views::transform([&](const auto &c) { return of(c); });
+  auto f = std::ranges::fold_left_first(fs, [](auto &&lhs, auto &&rhs) {
+    return std::forward<decltype(lhs)>(lhs) + std::forward<decltype(rhs)>(rhs);
+  });
+  return *f;
+}
+
+Fragment NfaBuilder::of(const Concatenation &cat) {
+  auto fs = cat.repetitions |
+            std::views::transform([&](const auto &c) { return of(c); });
+  auto f = std::ranges::fold_left_first(fs, [](auto &&lhs, auto &&rhs) {
+    return std::forward<decltype(lhs)>(lhs) * std::forward<decltype(rhs)>(rhs);
+  });
+  return *f;
+}
+
+Fragment NfaBuilder::of(const Repetition &rep) {
+  auto f = rep.isNested ? of(rep.regex) : of(rep.literal);
+  switch (rep.rep) {
+  case 0:
+    break;
+  case '*': {
+    f = std::move(f).star();
+    break;
+  }
+  case '+': {
+    f = std::move(f)++;
+    break;
+  }
+  case '?': {
+    f = std::move(f).maybe();
+    break;
+  }
+  }
+  return f;
+}
+
+} // namespace
 
 namespace {
 
@@ -289,12 +465,18 @@ void test() {
   std::println("Matches {}? {}", pat, res);
 }
 
-bool match(const Regex &regex, std::string_view text) {
+bool oldMatch(const Regex &regex, std::string_view text) {
   auto nfa = forNode(regex);
   auto states = nfa.epsilonClosure(std::set<size_t>{0});
   for (auto c : text) {
     states = nfa.epsilonClosure(nfa.step(c, states));
   }
   return nfa.accepts(states);
+}
+
+bool match(const Regex &regex, std::string_view text) {
+  auto builder = NfaBuilder{};
+  auto f = builder.of(regex);
+  return f.match(text);
 }
 } // namespace toyctre

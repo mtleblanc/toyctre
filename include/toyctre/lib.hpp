@@ -26,7 +26,7 @@ struct Regex {
 };
 
 struct Repetition {
-  Regex regex;
+  Alternative regex;
   char literal{};
   bool isNested{};
   bool wasEscaped{};
