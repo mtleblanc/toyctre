@@ -6,6 +6,5 @@
 namespace toyctre {
 
 bool match(const Regex &regex, std::string_view text);
-void test();
 
 } // namespace toyctre
