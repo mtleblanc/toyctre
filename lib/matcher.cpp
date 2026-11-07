@@ -55,13 +55,14 @@ public:
   [[nodiscard]] constexpr auto &&operator[](this Self &&self, size_t state,
                                             char transition) {
     assert(state < self.transitions.size());
-    return self.transitions[state][static_cast<size_t>(transition) & 0xFF];
+    return std::forward<Self>(self)
+        .transitions[state][static_cast<size_t>(transition) & 0xFF];
   }
 
   template <typename Self>
   [[nodiscard]] constexpr auto &&operator[](this Self &&self, size_t state,
                                             Epsilon) noexcept {
-    return self.transitions[state][N_CHARS];
+    return std::forward<Self>(self).transitions[state][N_CHARS];
   }
 
   [[nodiscard]] constexpr auto size() const noexcept {
@@ -76,40 +77,43 @@ public:
   }
 
   // concat
-  template <typename Self> auto operator*(this Self &&self, const NFA &rhs) {
-    auto ret = self;
+  template <typename Self, typename RHS>
+  auto operator*(this Self &&self, RHS &&rhs) {
+    auto ret = std::forward<Self>(self);
     auto n = ret.size();
     ret.transitions.resize(ret.size() + rhs.size(), {});
     for (auto i = 0uz; i < rhs.transitions.size(); ++i) {
       for (auto j = 0uz; j < N_CHARS; ++j) {
-        ret[i + n, j] = shifted(rhs[i, j], n);
+        ret[i + n, j] = shifted(std::forward<RHS>(rhs)[i, j], n);
       }
-      ret[i + n, epsilon] = shifted(rhs[i, epsilon], n);
+      ret[i + n, epsilon] = shifted(std::forward<RHS>(rhs)[i, epsilon], n);
     }
     for (auto i : ret.accept) {
       ret[i, epsilon].insert(n);
     }
-    ret.accept = shifted(rhs.accept, n);
+    ret.accept = shifted(std::forward<RHS>(rhs).accept, n);
     return ret;
   }
 
-  template <typename Self> auto operator+(this Self &&self, const NFA &rhs) {
-    auto ret = self;
+  template <typename Self, typename RHS>
+  auto operator+(this Self &&self, RHS &&rhs) {
+    auto ret = std::forward<Self>(self);
     const auto n = ret.size();
     const auto m = rhs.size();
     ret.transitions.resize(n + m + 1, {});
     for (auto i = n; i-- > 0;) {
       for (auto j = 0uz; j < N_CHARS; ++j) {
-        ret[i + 1, j] = shifted(ret[i, j], 1);
+        ret[i + 1, j] = shifted(std::move(ret[i, j]), 1);
       }
-      ret[i + 1, epsilon] = shifted(ret[i, epsilon], 1);
+      ret[i + 1, epsilon] = shifted(std::move(ret[i, epsilon]), 1);
     }
 
     for (auto i = m; i-- > 0;) {
       for (auto j = 0uz; j < N_CHARS; ++j) {
-        ret[i + 1 + n, j] = shifted(rhs[i, j], n + 1);
+        ret[i + 1 + n, j] = shifted(std::forward<RHS>(rhs)[i, j], n + 1);
       }
-      ret[i + 1 + n, epsilon] = shifted(rhs[i, epsilon], n + 1);
+      ret[i + 1 + n, epsilon] =
+          shifted(std::forward<RHS>(rhs)[i, epsilon], n + 1);
     }
 
     ret.transitions[0] = {};
@@ -215,7 +219,7 @@ NFA forNode(const Concatenation &cat) {
       cat.repetitions |
           std::views::transform([](const auto &c) { return forNode(c); }),
       [](auto &&nfa, auto &&c) {
-        return std::forward<decltype(nfa)>(nfa) + std::forward<decltype(c)>(c);
+        return std::forward<decltype(nfa)>(nfa) * std::forward<decltype(c)>(c);
       });
   return *ret;
 }
