@@ -126,7 +126,7 @@ TEST_CASE("Parser: Composite expressions", "[parser][accept]") {
                 "ab|c(d|e)*f?"});
 }
 
-TEST_CASE("Parser: Long inputs", "[parser][accept][stress]") {
+TEST_CASE("Parser: Long inputs", "[parser][accept][stress][slow]") {
   SECTION("long literal") {
     CHECK(parseRegex(std::string(1000, 'a')).accepted);
   }

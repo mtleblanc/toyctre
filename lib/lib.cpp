@@ -317,14 +317,14 @@ constexpr ParseResult parse(std::string_view regex) {
         auto alt = std::move(std::get<Alternative>(nodes.back()));
         nodes.pop_back();
         auto &reg = std::get<Regex>(nodes.back());
-        reg.alternatives = std::move(alt);
+        reg.alternative = std::move(alt);
         break;
       }
       case A_MakeGroup: {
         auto alt = std::move(std::get<Alternative>(nodes.back()));
         nodes.pop_back();
         auto &unt = std::get<Repetition>(nodes.back());
-        unt.regex = std::move(alt);
+        unt.altenative = std::move(alt);
         unt.isNested = true;
         break;
       }
@@ -396,7 +396,7 @@ constexpr ParseResult parse(std::string_view regex) {
 
 std::string Repetition::toString() const {
   return (this->isNested
-              ? "(" + this->regex.toString() + ")"
+              ? "(" + this->altenative.toString() + ")"
               : (this->wasEscaped ? "\\" : "") + std::string{this->literal}) +
          (this->rep != 0 ? std::string{this->rep} : "");
 }
@@ -420,7 +420,7 @@ std::string Alternative::toString() const {
       .value();
 }
 
-std::string Regex::toString() const { return this->alternatives.toString(); }
+std::string Regex::toString() const { return this->alternative.toString(); }
 
 ParseResult parseRegex(std::string_view regex) { return parse(regex); }
 } // namespace toyctre

@@ -20,13 +20,13 @@ struct Alternative {
 };
 
 struct Regex {
-  Alternative alternatives;
+  Alternative alternative;
 
   std::string toString() const;
 };
 
 struct Repetition {
-  Alternative regex;
+  Alternative altenative;
   char literal{};
   bool isNested{};
   bool wasEscaped{};

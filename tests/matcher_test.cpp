@@ -271,7 +271,7 @@ TEST_CASE("High-bit bytes", "[matcher][bytes]") {
 // Size / pathological inputs
 // ---------------------------------------------------------------------------
 
-TEST_CASE("Long matcher inputs", "[matcher][stress]") {
+TEST_CASE("Long matcher inputs", "[matcher][stress][slow]") {
   SECTION("long text against star") {
     auto re = parseRegex("a*");
     REQUIRE(re.accepted);

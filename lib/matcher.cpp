@@ -4,8 +4,8 @@
 #include <array>
 #include <cassert>
 #include <chrono>
-#include <deque>
 #include <format>
+#include <memory_resource>
 #include <print>
 #include <ranges>
 #include <set>
@@ -23,12 +23,14 @@ struct Node {
   Node *nextl{};
   int gen{};
 
-  Node(int c) : c{c} {}
+  Node(int c, Node *next = nullptr, Node *nextl = nullptr)
+      : c{c}, next{next}, nextl{nextl} {}
 };
 
 struct Fragment;
 class NfaBuilder {
-  std::deque<Node> nodes{};
+  std::pmr::monotonic_buffer_resource bufferResource{};
+  std::pmr::polymorphic_allocator<> nodes{&bufferResource};
 
 public:
   Fragment of(char c);
@@ -36,15 +38,25 @@ public:
   Fragment of(const Alternative &alt);
   Fragment of(const Concatenation &cat);
   Fragment of(const Repetition &rep);
-  Node *match(char c) { return &nodes.emplace_back(c); }
-  Node *alt() { return &nodes.emplace_back(Node::ALTERNATIVE); }
-  Node *accept() { return &nodes.emplace_back(Node::ACCEPT); }
+  Node *match(char c) { return nodes.new_object<Node>(c); }
+  Node *alt(Node *next = nullptr, Node *nextl = nullptr) {
+    return nodes.new_object<Node>(Node::ALTERNATIVE, next, nextl);
+  }
+  Node *accept() { return nodes.new_object<Node>(Node::ACCEPT); }
 };
 
 struct Fragment {
   NfaBuilder *builder;
   Node *start{};
   std::vector<Node **> dangling{};
+
+  Fragment(NfaBuilder *builder, Node *start, std::vector<Node **> dangling)
+      : builder{builder}, start{start}, dangling{std::move(dangling)} {}
+  Fragment(const Fragment &) = delete;
+  Fragment(Fragment &&) = default;
+  Fragment &operator=(const Fragment &) = delete;
+  Fragment &operator=(Fragment &&) = default;
+
   void patch(Node *n) {
     for (auto p : dangling) {
       *p = n;
@@ -58,51 +70,49 @@ struct Fragment {
 
   Fragment operator*(this Fragment lhs, Fragment rhs) {
     lhs.patch(rhs.start);
-    lhs.dangling = std::move(rhs.dangling);
-    return lhs;
+    rhs.start = lhs.start;
+    return rhs;
   }
 
-  Fragment operator+(this Fragment lhs, const Fragment &rhs) {
-    auto alt = lhs.builder->alt();
-    alt->next = lhs.start;
-    alt->nextl = rhs.start;
-    lhs.start = alt;
+  Fragment operator+(this Fragment lhs, Fragment rhs) {
+    lhs.start = lhs.builder->alt(lhs.start, rhs.start);
     lhs.append(rhs);
     return lhs;
   }
 
   Fragment operator++(this Fragment lhs, int) {
-    auto alt = lhs.builder->alt();
+    auto alt = lhs.builder->alt(lhs.start);
     lhs.patch(alt);
-    alt->next = lhs.start;
     lhs.dangling.push_back(&alt->nextl);
     return lhs;
   }
 
   Fragment maybe(this Fragment lhs) {
-    auto alt = lhs.builder->alt();
-    lhs.dangling.push_back(&alt->nextl);
-    alt->next = lhs.start;
-    lhs.start = alt;
+    lhs.start = lhs.builder->alt(lhs.start);
+    lhs.dangling.push_back(&lhs.start->nextl);
     return lhs;
   }
 
   Fragment star(this Fragment lhs) {
-    auto alt = lhs.builder->alt();
-    lhs.patch(alt);
-    lhs.dangling.push_back(&alt->nextl);
-    alt->next = lhs.start;
-    lhs.start = alt;
+    lhs.start = lhs.builder->alt(lhs.start);
+    lhs.patch(lhs.start);
+    lhs.dangling.push_back(&lhs.start->nextl);
     return lhs;
   }
 
   Fragment accept(this Fragment lhs) {
-    auto acc = lhs.builder->accept();
-    lhs.patch(acc);
+    lhs.patch(lhs.builder->accept());
     return lhs;
   }
+
   bool match(std::string_view text) const {
-    static int gen = 1;
+    // TODO: can't reuse a NFA right now.  Could make gen static but then it's
+    // globally shared.  Could make it a mutable member of Fragment, or drop
+    // const on match (which is arguably more accurate since it messes with
+    // nodes->gen). Could traverse the states and reset nodes->gen at start of
+    // match. Could not use gen at all and maintain a set of added next nodes at
+    // the cost of some runtime
+    int gen = 1;
     std::vector<Node *> currentNodes{};
     std::vector<Node *> nextNodes{};
     auto queue = [&nextNodes](this auto &&q, Node *s, int gen) {
@@ -110,10 +120,11 @@ struct Fragment {
         return;
       };
       s->gen = gen;
-      nextNodes.push_back(s);
       if (s->c == Node::ALTERNATIVE) {
         q(s->next, gen);
         q(s->nextl, gen);
+      } else {
+        nextNodes.push_back(s);
       }
     };
 
@@ -144,29 +155,27 @@ Fragment NfaBuilder::of(char c) {
 }
 
 Fragment NfaBuilder::of(const Regex &reg) {
-  return of(reg.alternatives).accept();
+  return of(reg.alternative).accept();
 }
 
 Fragment NfaBuilder::of(const Alternative &alt) {
   auto fs = alt.concatenations |
             std::views::transform([&](const auto &c) { return of(c); });
-  auto f = std::ranges::fold_left_first(fs, [](auto &&lhs, auto &&rhs) {
+  return *std::ranges::fold_left_first(fs, [](auto &&lhs, auto &&rhs) {
     return std::forward<decltype(lhs)>(lhs) + std::forward<decltype(rhs)>(rhs);
   });
-  return *f;
 }
 
 Fragment NfaBuilder::of(const Concatenation &cat) {
   auto fs = cat.repetitions |
             std::views::transform([&](const auto &c) { return of(c); });
-  auto f = std::ranges::fold_left_first(fs, [](auto &&lhs, auto &&rhs) {
+  return *std::ranges::fold_left_first(fs, [](auto &&lhs, auto &&rhs) {
     return std::forward<decltype(lhs)>(lhs) * std::forward<decltype(rhs)>(rhs);
   });
-  return *f;
 }
 
 Fragment NfaBuilder::of(const Repetition &rep) {
-  auto f = rep.isNested ? of(rep.regex) : of(rep.literal);
+  auto f = rep.isNested ? of(rep.altenative) : of(rep.literal);
   switch (rep.rep) {
   case 0:
     break;
@@ -378,7 +387,7 @@ NFA forNode(const Alternative &alt);
 NFA forNode(const Concatenation &cat);
 NFA forNode(const Repetition &regex);
 
-NFA forNode(const Regex &reg) { return forNode(reg.alternatives); }
+NFA forNode(const Regex &reg) { return forNode(reg.alternative); }
 NFA forNode(const Alternative &alt) {
 
   auto ret = std::ranges::fold_left_first(
@@ -401,7 +410,8 @@ NFA forNode(const Concatenation &cat) {
 }
 
 NFA forNode(const Repetition &regex) {
-  auto base = regex.isNested ? forNode(regex.regex) : NFA::of(regex.literal);
+  auto base =
+      regex.isNested ? forNode(regex.altenative) : NFA::of(regex.literal);
   switch (regex.rep) {
   case 0:
 
