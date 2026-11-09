@@ -7,6 +7,7 @@ namespace toyctre {
 namespace compile_time {
 
 struct ParseFailure {};
+template <typename> struct ParseSuccess {};
 
 template <size_t N> struct RegexString {
   constexpr RegexString(const char (&str)[N]) { std::copy_n(str, N, data); }
@@ -131,30 +132,14 @@ struct Lex : if_value<Symbol, is_eot_v<p>, Symbol::T_Eot,
 
 template <Symbol...> struct Sen {};
 template <typename...> struct Nodes {};
-template <typename, typename, typename> struct ParseRegex;
+template <typename, typename, typename> struct Step;
 template <Symbol, typename, typename, typename> struct DoAction;
 template <Symbol, typename, typename, typename> struct ConsumeTerminal;
 template <Symbol, typename, typename, typename> struct Predict;
 
-template <typename node, typename p>
-struct ParseRegex<p, Sen<>, Nodes<node>>
-    : if_<is_eot_v<p>, Ty<node>, Ty<ParseFailure>> {};
-template <typename, typename, typename> struct ParseRegex {};
-
-constexpr bool isAction(Symbol s) { return s > Symbol::ACTIONS; }
-constexpr bool isTerminal(Symbol s) {
-  return s > Symbol::TERMINALS && s < Symbol::ACTIONS;
-}
-
-template <typename r, Symbol t, Symbol... ss, typename n>
-struct ParseRegex<r, Sen<t, ss...>, n>
-    : if_<isAction(t), DoAction<t, r, Sen<ss...>, n>,
-          if_<isTerminal(t), ConsumeTerminal<t, r, Sen<ss...>, n>,
-              Predict<t, r, Sen<ss...>, n>>> {};
-
 ////////////////////// ConsumeTerminal ////////////////////////////////////////
 template <typename p, typename s, typename n>
-struct ParseNext : ParseRegex<advance_t<p>, s, n> {};
+struct ParseNext : Ty<Step<advance_t<p>, s, n>> {};
 
 template <Symbol t, typename p, typename s, typename n>
 struct ConsumeTerminal : if_<!is_eot_v<p> && matches_v<t, current_char_v<p>>,
@@ -162,12 +147,12 @@ struct ConsumeTerminal : if_<!is_eot_v<p> && matches_v<t, current_char_v<p>>,
 
 template <typename p, typename s, typename n>
 struct ConsumeTerminal<Symbol::T_Eot, p, s, n>
-    : if_<is_eot_v<p>, ParseRegex<p, s, n>, Ty<ParseFailure>> {};
+    : if_<is_eot_v<p>, Ty<Step<p, s, n>>, Ty<ParseFailure>> {};
 ////////////////// End ConsumeTerminal ////////////////////////////////////////
 
 ////////////////////// DoAction ///////////////////////////////////////////////
 template <Symbol, typename p, typename s, typename>
-struct DoAction : ParseRegex<p, s, Nodes<int>> {};
+struct DoAction : Ty<Step<p, s, Nodes<int>>> {};
 
 template <typename p, typename s, typename n>
 struct DoAction<Symbol::A_Reject, p, s, n> : Ty<ParseFailure> {};
@@ -243,19 +228,50 @@ template <Symbol nt, Symbol p>
 using produce_t = typename produce::Produce<nt, p>::type;
 
 template <Symbol nt, typename p, typename s, typename n>
-struct Predict
-    : ParseRegex<p, concat_t<produce_t<nt, lex_v<p>>, s>, Nodes<int>> {};
+struct Predict : Ty<Step<p, concat_t<produce_t<nt, lex_v<p>>, s>, Nodes<int>>> {
+};
 
 ////////////////// End Predict ////////////////////////////////////////////////
+
+// {{{ Step
+
+template <typename, typename, typename> struct Step {};
+
+constexpr bool isAction(Symbol s) { return s > Symbol::ACTIONS; }
+constexpr bool isTerminal(Symbol s) {
+  return s > Symbol::TERMINALS && s < Symbol::ACTIONS;
+}
+
+template <typename> struct NextStep;
+template <typename node, typename p>
+struct NextStep<Step<p, Sen<>, Nodes<node>>>
+    : if_<is_eot_v<p>, Ty<ParseSuccess<node>>, Ty<ParseFailure>> {};
+
+template <typename r, Symbol t, Symbol... ss, typename n>
+struct NextStep<Step<r, Sen<t, ss...>, n>>
+    : if_<isAction(t), DoAction<t, r, Sen<ss...>, n>,
+          if_<isTerminal(t), ConsumeTerminal<t, r, Sen<ss...>, n>,
+              Predict<t, r, Sen<ss...>, n>>> {};
+
+template <typename> struct Iterate;
+template <typename p, typename s, typename n>
+struct Iterate<Step<p, s, n>>
+    : Iterate<typename NextStep<Step<p, s, n>>::type> {};
+template <typename t> struct Iterate : Ty<t> {};
+
+// }}}
 
 } // namespace detail
 
 template <RegexString regex>
 struct CompileTimeRegex
-    : detail::ParseRegex<detail::Progress<regex.data, 0>,
-                         detail::Sen<Symbol::S>, detail::Nodes<>> {};
+    : detail::Iterate<detail::Step<detail::Progress<regex.data, 0>,
+                                   detail::Sen<Symbol::S>, detail::Nodes<>>> {};
+
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
+
+static_assert(std::is_same_v<compile_time_regex_t<"hello">, ParseSuccess<int>>);
 
 } // namespace compile_time
 } // namespace toyctre
