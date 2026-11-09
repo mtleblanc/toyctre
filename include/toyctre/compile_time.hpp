@@ -25,15 +25,30 @@ template <typename T, typename F> struct if_<false, T, F> {
   using type = typename F::type;
 };
 
-template <typename T> struct HasType {
+template <bool b, typename t, typename f>
+using if_t = typename if_<b, t, f>::type;
+
+template <typename V, bool, V, V> struct if_value;
+template <typename V, V t, V f> struct if_value<V, true, t, f> {
+  static constexpr V value = t;
+};
+template <typename V, V t, V f> struct if_value<V, false, t, f> {
+  static constexpr V value = f;
+};
+
+template <typename T> struct Ty {
   using type = T;
+};
+
+template <typename V, V v> struct HasValue {
+  static constexpr V value = v;
 };
 
 template <typename, typename> struct Concat;
 template <typename T, template <T...> class LIST, T... l1, T... l2>
-struct Concat<LIST<l1...>, LIST<l2...>> : HasType<LIST<l1..., l2...>> {};
+struct Concat<LIST<l1...>, LIST<l2...>> : Ty<LIST<l1..., l2...>> {};
 template <template <typename...> class LIST, typename... l1, typename... l2>
-struct Concat<LIST<l1...>, LIST<l2...>> : HasType<LIST<l1..., l2...>> {};
+struct Concat<LIST<l1...>, LIST<l2...>> : Ty<LIST<l1..., l2...>> {};
 
 template <typename l1, typename l2>
 using concat_t = typename Concat<l1, l2>::type;
@@ -42,6 +57,29 @@ using concat_t = typename Concat<l1, l2>::type;
 
 namespace detail {
 using namespace helpers;
+
+template <char c> struct LexChar {
+  static constexpr auto value = []() {
+    using enum Symbol;
+    switch (c) {
+    case '(':
+      return T_LPar;
+    case ')':
+      return T_RPar;
+    case '*':
+    case '?':
+    case '+':
+      return T_Rep;
+    case '|':
+      return T_Bar;
+    case '\\':
+      return T_Slash;
+    default:
+      return T_Reg;
+    }
+  }();
+};
+template <char c> static constexpr auto lex_char_v = LexChar<c>::value;
 
 /////////////// Progress /////////////////////////////////////
 namespace progress {
@@ -66,25 +104,9 @@ template <typename> struct IsEot : std::false_type {};
 template <RegexString r>
 struct IsEot<Progress<r, r.size() - 1>> : std::true_type {};
 
-template <Symbol t, char c> struct Matches : std::false_type {};
-
-template <char c> struct Matches<Symbol::T_Reg, c> : std::true_type {};
-template <> struct Matches<Symbol::T_Reg, '('> : std::false_type {};
-template <> struct Matches<Symbol::T_Reg, ')'> : std::false_type {};
-template <> struct Matches<Symbol::T_Reg, '*'> : std::false_type {};
-template <> struct Matches<Symbol::T_Reg, '?'> : std::false_type {};
-template <> struct Matches<Symbol::T_Reg, '+'> : std::false_type {};
-template <> struct Matches<Symbol::T_Reg, '|'> : std::false_type {};
-template <> struct Matches<Symbol::T_Reg, '\\'> : std::false_type {};
-
-template <> struct Matches<Symbol::T_Rep, '*'> : std::true_type {};
-template <> struct Matches<Symbol::T_Rep, '?'> : std::true_type {};
-template <> struct Matches<Symbol::T_Rep, '+'> : std::true_type {};
-
-template <> struct Matches<Symbol::T_LPar, '('> : std::true_type {};
-template <> struct Matches<Symbol::T_RPar, ')'> : std::true_type {};
-template <> struct Matches<Symbol::T_Slash, '\\'> : std::true_type {};
-template <> struct Matches<Symbol::T_Bar, '|'> : std::true_type {};
+template <Symbol t, char c> struct Matches {
+  static constexpr auto value = lex_char_v<c> == t;
+};
 } // namespace progress
 
 using progress::Progress;
@@ -101,43 +123,13 @@ template <typename p> using advance_t = typename progress::Advance<p>::type;
 template <typename> struct Lex;
 template <typename c> static constexpr auto lex_v = Lex<c>::value;
 
-template <char c> struct LexChar {
-  static constexpr auto value = Symbol::T_Reg;
-};
-
-template <> struct LexChar<'('> {
-  static constexpr auto value = Symbol::T_LPar;
-};
-template <> struct LexChar<')'> {
-  static constexpr auto value = Symbol::T_RPar;
-};
-template <> struct LexChar<'*'> {
-  static constexpr auto value = Symbol::T_Rep;
-};
-template <> struct LexChar<'?'> {
-  static constexpr auto value = Symbol::T_Rep;
-};
-template <> struct LexChar<'+'> {
-  static constexpr auto value = Symbol::T_Rep;
-};
-template <> struct LexChar<'|'> {
-  static constexpr auto value = Symbol::T_Bar;
-};
-template <> struct LexChar<'\\'> {
-  static constexpr auto value = Symbol::T_Slash;
-};
-
-struct EotChar {
-  static constexpr auto value = Symbol::T_Eot;
-};
-
 template <typename p>
-struct Lex : if_<is_eot_v<p>, HasType<EotChar>,
-                 HasType<LexChar<current_char_v<p>>>>::type {};
+struct Lex : if_value<Symbol, is_eot_v<p>, Symbol::T_Eot,
+                      lex_char_v<current_char_v<p>>> {};
 
 ////////////////// End Lex ////////////////////////////////////////////////////
 
-template <Symbol...> struct Sentinels {};
+template <Symbol...> struct Sen {};
 template <typename...> struct Nodes {};
 template <typename, typename, typename> struct ParseRegex;
 template <Symbol, typename, typename, typename> struct DoAction;
@@ -145,8 +137,8 @@ template <Symbol, typename, typename, typename> struct ConsumeTerminal;
 template <Symbol, typename, typename, typename> struct Predict;
 
 template <typename node, typename p>
-struct ParseRegex<p, Sentinels<>, Nodes<node>>
-    : if_<is_eot_v<p>, HasType<node>, HasType<ParseFailure>> {};
+struct ParseRegex<p, Sen<>, Nodes<node>>
+    : if_<is_eot_v<p>, Ty<node>, Ty<ParseFailure>> {};
 template <typename, typename, typename> struct ParseRegex {};
 
 constexpr bool isAction(Symbol s) { return s > Symbol::ACTIONS; }
@@ -155,10 +147,10 @@ constexpr bool isTerminal(Symbol s) {
 }
 
 template <typename r, Symbol t, Symbol... ss, typename n>
-struct ParseRegex<r, Sentinels<t, ss...>, n>
-    : if_<isAction(t), DoAction<t, r, Sentinels<ss...>, n>,
-          if_<isTerminal(t), ConsumeTerminal<t, r, Sentinels<ss...>, n>,
-              Predict<t, r, Sentinels<ss...>, n>>> {};
+struct ParseRegex<r, Sen<t, ss...>, n>
+    : if_<isAction(t), DoAction<t, r, Sen<ss...>, n>,
+          if_<isTerminal(t), ConsumeTerminal<t, r, Sen<ss...>, n>,
+              Predict<t, r, Sen<ss...>, n>>> {};
 
 ////////////////////// ConsumeTerminal ////////////////////////////////////////
 template <typename p, typename s, typename n>
@@ -166,12 +158,11 @@ struct ParseNext : ParseRegex<advance_t<p>, s, n> {};
 
 template <Symbol t, typename p, typename s, typename n>
 struct ConsumeTerminal : if_<!is_eot_v<p> && matches_v<t, current_char_v<p>>,
-                             ParseNext<p, s, n>, HasType<ParseFailure>> {};
+                             ParseNext<p, s, n>, Ty<ParseFailure>> {};
 
 template <typename p, typename s, typename n>
-struct ConsumeTerminal<Symbol::T_Eot, p, s, n> : ParseRegex<p, s, n> {
-  static_assert(is_eot_v<p>, "Expected end of text");
-};
+struct ConsumeTerminal<Symbol::T_Eot, p, s, n>
+    : if_<is_eot_v<p>, ParseRegex<p, s, n>, Ty<ParseFailure>> {};
 ////////////////// End ConsumeTerminal ////////////////////////////////////////
 
 ////////////////////// DoAction ///////////////////////////////////////////////
@@ -179,7 +170,7 @@ template <Symbol, typename p, typename s, typename>
 struct DoAction : ParseRegex<p, s, Nodes<int>> {};
 
 template <typename p, typename s, typename n>
-struct DoAction<Symbol::A_Reject, p, s, n> : HasType<ParseFailure> {};
+struct DoAction<Symbol::A_Reject, p, s, n> : Ty<ParseFailure> {};
 ////////////////// End DoAction ///////////////////////////////////////////////
 
 ////////////////////// Predict ////////////////////////////////////////////////
@@ -187,106 +178,65 @@ struct DoAction<Symbol::A_Reject, p, s, n> : HasType<ParseFailure> {};
 namespace produce {
 using enum Symbol;
 template <Symbol nt, Symbol p> struct Produce {
-  using type = Sentinels<A_Reject>;
+  using type = Sen<A_Reject>;
 };
 
-template <size_t> struct Production;
+template <size_t> struct Prod;
 
+template <> struct Prod<1> : Ty<Sen<A_EAlt, Alt, T_Eot, A_AReg>> {}; // S
+template <> struct Prod<2> : Ty<Sen<A_ECat, Cat, A_ACat, Cats>> {};  // Alt
 template <>
-struct Production<1> : HasType<Sentinels<A_EmptyAlt, Alt, A_MakeRegex>> {}; // S
+struct Prod<3> : Ty<Sen<T_Bar, A_ECat, Cat, A_ACat, Cats>> {};           // Cats
+template <> struct Prod<4> : Ty<Sen<>> {};                               // Cats
+template <> struct Prod<5> : Ty<Sen<A_ERep, Unt, Amt, A_ARep, Reps>> {}; // Cat
+template <> struct Prod<6> : Ty<Sen<A_ERep, Unt, Amt, A_ARep, Reps>> {}; // Reps
+template <> struct Prod<7> : Ty<Sen<>> {};                               // Reps
+template <> struct Prod<8> : Ty<Sen<A_RLit, T_Reg>> {};                  // Unt
+template <> struct Prod<9> : Ty<Sen<T_Slash, A_REsc, Lit>> {};           // Unt
+template <> struct Prod<10> : Ty<Sen<T_Reg>> {};                         // Lit
+template <> struct Prod<11> : Ty<Sen<T_Rep>> {};                         // Lit
+template <> struct Prod<12> : Ty<Sen<T_LPar>> {};                        // Lit
+template <> struct Prod<13> : Ty<Sen<T_RPar>> {};                        // Lit
+template <> struct Prod<14> : Ty<Sen<T_Slash>> {};                       // Lit
+template <> struct Prod<15> : Ty<Sen<T_Bar>> {};                         // Lit
 template <>
-struct Production<2> : HasType<Sentinels<A_EmptyCat, Cat, A_AppendCat, Cats>> {
-}; // Alt
-template <>
-struct Production<3>
-    : HasType<Sentinels<T_Bar, A_EmptyCat, Cat, A_AppendCat, Cats>> {}; // Cats
-template <> struct Production<4> : HasType<Sentinels<>> {};             // Cats
-template <>
-struct Production<5>
-    : HasType<Sentinels<A_EmptyRep, Unt, Amt, A_AppendRep, Reps>> {}; // Cat
-template <>
-struct Production<6>
-    : HasType<Sentinels<A_EmptyRep, Unt, Amt, A_AppendRep, Reps>> {}; // Reps
-template <> struct Production<7> : HasType<Sentinels<>> {};           // Reps
-template <>
-struct Production<8> : HasType<Sentinels<A_RecordLit, T_Reg>> {}; // Unt
-template <>
-struct Production<9> : HasType<Sentinels<T_Slash, A_RecordEscaped, Lit>> {
-}; // Unt
-template <> struct Production<10> : HasType<Sentinels<T_Reg>> {};   // Lit
-template <> struct Production<11> : HasType<Sentinels<T_Rep>> {};   // Lit
-template <> struct Production<12> : HasType<Sentinels<T_LPar>> {};  // Lit
-template <> struct Production<13> : HasType<Sentinels<T_RPar>> {};  // Lit
-template <> struct Production<14> : HasType<Sentinels<T_Slash>> {}; // Lit
-template <> struct Production<15> : HasType<Sentinels<T_Bar>> {};   // Lit
-template <>
-struct Production<16>
-    : HasType<Sentinels<T_LPar, A_EmptyAlt, Alt, A_MakeGroup, T_RPar>> {
-}; // Unt
-template <>
-struct Production<17> : HasType<Sentinels<A_RecordRep, T_Rep>> {}; // Amt
-template <> struct Production<18> : HasType<Sentinels<>> {};       // Amt
-
-template <> struct Produce<S, T_LPar> : Production<1> {};
-template <> struct Produce<S, T_Slash> : Production<1> {};
-template <> struct Produce<S, T_Reg> : Production<1> {};
-
-template <> struct Produce<Alt, T_LPar> : Production<2> {};
-template <> struct Produce<Alt, T_Slash> : Production<2> {};
-template <> struct Produce<Alt, T_Reg> : Production<2> {};
-
-template <> struct Produce<Cat, T_LPar> : Production<5> {};
-template <> struct Produce<Cat, T_Slash> : Production<5> {};
-template <> struct Produce<Cat, T_Reg> : Production<5> {};
-
-template <> struct Produce<Cats, T_RPar> : Production<4> {};
-template <> struct Produce<Cats, T_Bar> : Production<3> {};
-template <> struct Produce<Cats, T_Eot> : Production<4> {};
-
-// 4 10 6
-template <> struct Produce<Reps, T_LPar> : Production<6> {};
-// 4 11 7
-template <> struct Produce<Reps, T_RPar> : Production<7> {};
-// 4 12 6
-template <> struct Produce<Reps, T_Slash> : Production<6> {};
-// 4 13 7
-template <> struct Produce<Reps, T_Bar> : Production<7> {};
-// 4 14 6
-template <> struct Produce<Reps, T_Reg> : Production<6> {};
-// 4 15 7
-template <> struct Produce<Reps, T_Eot> : Production<7> {};
-// 5 10 16
-template <> struct Produce<Unt, T_LPar> : Production<16> {};
-// 5 12 9
-template <> struct Produce<Unt, T_Slash> : Production<9> {};
-// 5 14 8
-template <> struct Produce<Unt, T_Reg> : Production<8> {};
-// 6 9 17
-template <> struct Produce<Amt, T_Rep> : Production<17> {};
-// 6 10 18
-template <> struct Produce<Amt, T_LPar> : Production<18> {};
-// 6 11 18
-template <> struct Produce<Amt, T_RPar> : Production<18> {};
-// 6 12 18
-template <> struct Produce<Amt, T_Slash> : Production<18> {};
-// 6 13 18
-template <> struct Produce<Amt, T_Bar> : Production<18> {};
-// 6 14 18
-template <> struct Produce<Amt, T_Reg> : Production<18> {};
-// 6 15 18
-template <> struct Produce<Amt, T_Eot> : Production<18> {};
-// 7 9 11
-template <> struct Produce<Lit, T_Rep> : Production<11> {};
-// 7 10 12
-template <> struct Produce<Lit, T_LPar> : Production<12> {};
-// 7 11 13
-template <> struct Produce<Lit, T_RPar> : Production<13> {};
-// 7 12 14
-template <> struct Produce<Lit, T_Slash> : Production<14> {};
-// 7 13 15
-template <> struct Produce<Lit, T_Bar> : Production<15> {};
-// 7 14 10
-template <> struct Produce<Lit, T_Reg> : Production<10> {};
+struct Prod<16> : Ty<Sen<T_LPar, A_EAlt, Alt, A_AGrp, T_RPar>> {}; // Unt
+template <> struct Prod<17> : Ty<Sen<A_RRep, T_Rep>> {};           // Amt
+template <> struct Prod<18> : Ty<Sen<>> {};                        // Amt
+template <> struct Produce<S, T_LPar> : Prod<1> {};
+template <> struct Produce<S, T_Slash> : Prod<1> {};
+template <> struct Produce<S, T_Reg> : Prod<1> {};
+template <> struct Produce<Alt, T_LPar> : Prod<2> {};
+template <> struct Produce<Alt, T_Slash> : Prod<2> {};
+template <> struct Produce<Alt, T_Reg> : Prod<2> {};
+template <> struct Produce<Cat, T_LPar> : Prod<5> {};
+template <> struct Produce<Cat, T_Slash> : Prod<5> {};
+template <> struct Produce<Cat, T_Reg> : Prod<5> {};
+template <> struct Produce<Cats, T_RPar> : Prod<4> {};
+template <> struct Produce<Cats, T_Bar> : Prod<3> {};
+template <> struct Produce<Cats, T_Eot> : Prod<4> {};
+template <> struct Produce<Reps, T_LPar> : Prod<6> {};
+template <> struct Produce<Reps, T_RPar> : Prod<7> {};
+template <> struct Produce<Reps, T_Slash> : Prod<6> {};
+template <> struct Produce<Reps, T_Bar> : Prod<7> {};
+template <> struct Produce<Reps, T_Reg> : Prod<6> {};
+template <> struct Produce<Reps, T_Eot> : Prod<7> {};
+template <> struct Produce<Unt, T_LPar> : Prod<16> {};
+template <> struct Produce<Unt, T_Slash> : Prod<9> {};
+template <> struct Produce<Unt, T_Reg> : Prod<8> {};
+template <> struct Produce<Amt, T_Rep> : Prod<17> {};
+template <> struct Produce<Amt, T_LPar> : Prod<18> {};
+template <> struct Produce<Amt, T_RPar> : Prod<18> {};
+template <> struct Produce<Amt, T_Slash> : Prod<18> {};
+template <> struct Produce<Amt, T_Bar> : Prod<18> {};
+template <> struct Produce<Amt, T_Reg> : Prod<18> {};
+template <> struct Produce<Amt, T_Eot> : Prod<18> {};
+template <> struct Produce<Lit, T_Rep> : Prod<11> {};
+template <> struct Produce<Lit, T_LPar> : Prod<12> {};
+template <> struct Produce<Lit, T_RPar> : Prod<13> {};
+template <> struct Produce<Lit, T_Slash> : Prod<14> {};
+template <> struct Produce<Lit, T_Bar> : Prod<15> {};
+template <> struct Produce<Lit, T_Reg> : Prod<10> {};
 
 } // namespace produce
 template <Symbol nt, Symbol p>
@@ -303,11 +253,9 @@ struct Predict
 template <RegexString regex>
 struct CompileTimeRegex
     : detail::ParseRegex<detail::Progress<regex.data, 0>,
-                         detail::Sentinels<Symbol::S>, detail::Nodes<>> {};
+                         detail::Sen<Symbol::S>, detail::Nodes<>> {};
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
 
-static_assert(std::is_same_v<compile_time_regex_t<"hello">, int>);
-static_assert(std::is_same_v<compile_time_regex_t<"a)">, ParseFailure>);
 } // namespace compile_time
 } // namespace toyctre

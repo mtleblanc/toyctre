@@ -39,15 +39,15 @@ constexpr auto productions() {
   const auto epsilon = std::vector<Symbol>{};
   return std::vector<Production>{
       A_Reject >>= A_Reject,
-      S >>= A_EmptyAlt + Alt + A_MakeRegex,
-      Alt >>= A_EmptyCat + Cat + A_AppendCat + Cats,
-      Cats >>= T_Bar + A_EmptyCat + Cat + A_AppendCat + Cats,
+      S >>= A_EAlt + Alt + A_AReg,
+      Alt >>= A_ECat + Cat + A_ACat + Cats,
+      Cats >>= T_Bar + A_ECat + Cat + A_ACat + Cats,
       Cats >>= epsilon,
-      Cat >>= A_EmptyRep + Unt + Amt + A_AppendRep + Reps,
-      Reps >>= A_EmptyRep + Unt + Amt + A_AppendRep + Reps,
+      Cat >>= A_ERep + Unt + Amt + A_ARep + Reps,
+      Reps >>= A_ERep + Unt + Amt + A_ARep + Reps,
       Reps >>= epsilon,
-      Unt >>= A_RecordLit + T_Reg,
-      Unt >>= T_Slash + A_RecordEscaped + Lit,
+      Unt >>= A_RLit + T_Reg,
+      Unt >>= T_Slash + A_REsc + Lit,
       // TODO: maybe separate out a lexer to avoid this
       Lit >>= T_Reg,
       Lit >>= T_Rep,
@@ -55,8 +55,8 @@ constexpr auto productions() {
       Lit >>= T_RPar,
       Lit >>= T_Slash,
       Lit >>= T_Bar,
-      Unt >>= T_LPar + A_EmptyAlt + Alt + A_MakeGroup + T_RPar,
-      Amt >>= A_RecordRep + T_Rep,
+      Unt >>= T_LPar + A_EAlt + Alt + A_AGrp + T_RPar,
+      Amt >>= A_RRep + T_Rep,
       Amt >>= epsilon,
   };
 }
@@ -275,18 +275,18 @@ constexpr ParseResult parse(std::string_view regex) {
     sentinels.pop_back();
     if (cur > ACTIONS) {
       switch (cur) {
-      case (A_EmptyAlt): {
+      case (A_EAlt): {
         nodes.emplace_back(std::in_place_type<Alternative>);
         break;
       }
-      case A_MakeRegex: {
+      case A_AReg: {
         auto alt = std::move(std::get<Alternative>(nodes.back()));
         nodes.pop_back();
         auto &reg = std::get<Regex>(nodes.back());
         reg.alternative = std::move(alt);
         break;
       }
-      case A_MakeGroup: {
+      case A_AGrp: {
         auto alt = std::move(std::get<Alternative>(nodes.back()));
         nodes.pop_back();
         auto &unt = std::get<Repetition>(nodes.back());
@@ -294,22 +294,22 @@ constexpr ParseResult parse(std::string_view regex) {
         unt.isNested = true;
         break;
       }
-      case A_EmptyCat: {
+      case A_ECat: {
         nodes.emplace_back(std::in_place_type<Concatenation>);
         break;
       }
-      case A_AppendCat: {
+      case A_ACat: {
         auto cat = std::move(std::get<Concatenation>(nodes.back()));
         nodes.pop_back();
         auto &alt = std::get<Alternative>(nodes.back());
         alt.concatenations.push_back(std::move(cat));
         break;
       }
-      case A_EmptyRep: {
+      case A_ERep: {
         nodes.emplace_back(std::in_place_type<Repetition>);
         break;
       }
-      case A_AppendRep: {
+      case A_ARep: {
         auto rep = std::move(std::get<Repetition>(nodes.back()));
         nodes.pop_back();
         auto &cat = std::get<Concatenation>(nodes.back());
@@ -317,18 +317,18 @@ constexpr ParseResult parse(std::string_view regex) {
         break;
         break;
       }
-      case A_RecordEscaped: {
+      case A_REsc: {
         auto &unit = std::get<Repetition>(nodes.back());
         unit.literal = (*it).c;
         unit.wasEscaped = true;
         break;
       }
-      case A_RecordLit: {
+      case A_RLit: {
         auto &unit = std::get<Repetition>(nodes.back());
         unit.literal = (*it).c;
         break;
       }
-      case A_RecordRep: {
+      case A_RRep: {
         auto &rep = std::get<Repetition>(nodes.back());
         rep.rep = (*it).c;
         break;
