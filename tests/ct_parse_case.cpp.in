@@ -1,0 +1,21 @@
+// Generated from tests/ct_parse_case.cpp.in by tests/ct_parser_cases.cmake.
+// Do not edit; change the case list instead.
+//
+// Case: @CT_CATEGORY@ / expect @CT_EXPECT@
+
+#include "toyctre/compile_time.hpp"
+
+#include <type_traits>
+
+using toyctre::compile_time::compile_time_regex_t;
+using toyctre::compile_time::ParseFailure;
+
+using Result = compile_time_regex_t<R"__re__(@CT_REGEX@)__re__">;
+
+#if @CT_EXPECT_REJECT@
+static_assert(std::is_same_v<Result, ParseFailure>,
+              "expected regex to be rejected (result should be ParseFailure)");
+#else
+static_assert(!std::is_same_v<Result, ParseFailure>,
+              "expected regex to be accepted (result should not be ParseFailure)");
+#endif

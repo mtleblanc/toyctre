@@ -10,6 +10,8 @@
 #include <variant>
 #include <vector>
 
+#include "toyctre/compile_time.hpp"
+
 namespace toyctre {
 namespace detail {
 struct Production {

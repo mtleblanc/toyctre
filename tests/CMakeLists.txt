@@ -13,3 +13,5 @@ if(CMAKE_BUILD_TYPE_UPPER STREQUAL "DEBUG")
 else()
   catch_discover_tests(toyctre_tests)
 endif()
+
+include(ct_parser_cases.cmake)

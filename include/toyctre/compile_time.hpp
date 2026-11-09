@@ -145,10 +145,8 @@ template <Symbol, typename, typename, typename> struct ConsumeTerminal;
 template <Symbol, typename, typename, typename> struct Predict;
 
 template <typename node, typename p>
-struct ParseRegex<p, Sentinels<>, Nodes<node>> {
-  static_assert(is_eot_v<p>, "Finished parsing without consuming full regex");
-  using type = node;
-};
+struct ParseRegex<p, Sentinels<>, Nodes<node>>
+    : if_<is_eot_v<p>, HasType<node>, HasType<ParseFailure>> {};
 template <typename, typename, typename> struct ParseRegex {};
 
 constexpr bool isAction(Symbol s) { return s > Symbol::ACTIONS; }
@@ -163,10 +161,12 @@ struct ParseRegex<r, Sentinels<t, ss...>, n>
               Predict<t, r, Sentinels<ss...>, n>>> {};
 
 ////////////////////// ConsumeTerminal ////////////////////////////////////////
+template <typename p, typename s, typename n>
+struct ParseNext : ParseRegex<advance_t<p>, s, n> {};
+
 template <Symbol t, typename p, typename s, typename n>
-struct ConsumeTerminal : ParseRegex<advance_t<p>, s, n> {
-  static_assert(matches_v<t, current_char_v<p>>, "Unexpected charater");
-};
+struct ConsumeTerminal : if_<!is_eot_v<p> && matches_v<t, current_char_v<p>>,
+                             ParseNext<p, s, n>, HasType<ParseFailure>> {};
 
 template <typename p, typename s, typename n>
 struct ConsumeTerminal<Symbol::T_Eot, p, s, n> : ParseRegex<p, s, n> {
@@ -308,6 +308,6 @@ template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
 
 static_assert(std::is_same_v<compile_time_regex_t<"hello">, int>);
-static_assert(std::is_same_v<compile_time_regex_t<"hello(">, ParseFailure>);
+static_assert(std::is_same_v<compile_time_regex_t<"a)">, ParseFailure>);
 } // namespace compile_time
 } // namespace toyctre
