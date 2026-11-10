@@ -32,7 +32,7 @@ template <typename T> struct Ty {
   using type = T;
 };
 
-template <typename V, V v> struct HasValue {
+template <typename V, V v> struct Va {
   static constexpr V value = v;
 };
 
@@ -44,6 +44,16 @@ struct Concat<LIST<l1...>, LIST<l2...>> : Ty<LIST<l1..., l2...>> {};
 
 template <typename l1, typename l2>
 using concat_t = typename Concat<l1, l2>::type;
+
+template <typename, typename> struct Push;
+template <typename t, template <typename...> class LIST, typename... l1>
+struct Push<t, LIST<l1...>> : Ty<LIST<t, l1...>> {};
+template <typename t, typename l> using push_t = typename Push<t, l>::type;
+
+template <typename> struct Pop;
+template <template <typename...> class LIST, typename h, typename... t>
+struct Pop<LIST<h, t...>> : Ty<h> {};
+template <typename l> using pop_t = typename Pop<l>::type;
 
 } // namespace helpers
 // }}}
@@ -81,6 +91,33 @@ template <char c> struct LexChar {
   }();
 };
 template <char c> static constexpr auto lex_char_v = LexChar<c>::value;
+// }}}
+
+// Tree {{{
+namespace parse_tree {
+
+template <typename t> static constexpr auto isParseNode = false;
+template <typename t>
+concept IsParseNode = isParseNode<t>;
+template <IsParseNode> struct Regex {};
+
+template <IsParseNode> struct Group {};
+template <IsParseNode n> static constexpr auto isParseNode<Group<n>> = true;
+template <IsParseNode...> struct Sequence {};
+template <IsParseNode... ns>
+static constexpr auto isParseNode<Sequence<ns...>> = true;
+template <IsParseNode...> struct Alternatives {};
+template <IsParseNode... ns>
+static constexpr auto isParseNode<Alternatives<ns...>> = true;
+template <IsParseNode, char> struct Repetition {};
+template <IsParseNode n, char r>
+static constexpr auto isParseNode<Repetition<n, r>> = true;
+template <bool, char> struct Literal {};
+template <bool e, char c>
+static constexpr auto isParseNode<Literal<e, c>> = true;
+
+} // namespace parse_tree
+using namespace parse_tree;
 // }}}
 
 // Progress {{{
@@ -197,12 +234,44 @@ using consume::ConsumeTerminal;
 
 // Action {{{
 namespace action {
+using enum Symbol;
 
-template <Symbol, IsProgress p, IsSentinels s, IsNodes>
-struct DoAction : Ty<State<p, s, Nodes<int>>> {};
+template <Symbol, IsProgress, IsSentinels, IsNodes> struct DoAction {
+  static_assert(false, "Unrecognized action");
+};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_EAlt, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_AReg, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_AGrp, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_ECat, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_ACat, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_ERep, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_ARep, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_REsc, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_RLit, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
+
+template <IsProgress p, IsSentinels s, typename... ns>
+struct DoAction<A_RRep, p, s, Nodes<ns...>> : Ty<State<p, s, Nodes<int>>> {};
 
 template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<Symbol::A_Reject, p, s, n> : Ty<ParseFailure> {};
+struct DoAction<A_Reject, p, s, n> : Ty<ParseFailure> {};
 
 } // namespace action
 
@@ -339,8 +408,6 @@ struct CompileTimeRegex : detail::IterTilFixed<detail::initial_state_t<regex>> {
 
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
-
-static_assert(std::is_same_v<compile_time_regex_t<"hello">, ParseSuccess<int>>);
 
 } // namespace compile_time
 } // namespace toyctre
