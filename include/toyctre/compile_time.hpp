@@ -108,8 +108,16 @@ struct IsEot<Progress<r, r.size() - 1>> : std::true_type {};
 template <Symbol t, char c> struct Matches {
   static constexpr auto value = lex_char_v<c> == t;
 };
+
+template <typename p> inline constexpr auto isProgress = false;
+template <RegexString r, size_t n>
+inline constexpr auto isProgress<Progress<r, n>> = true;
+template <typename p>
+concept IsProgress = isProgress<p>;
+
 } // namespace progress
 
+using progress::IsProgress;
 using progress::Progress;
 template <typename p>
 static constexpr auto current_char_v = progress::CurrentChar<p>::value;
@@ -131,34 +139,59 @@ struct Lex : if_value<Symbol, is_eot_v<p>, Symbol::T_Eot,
 ////////////////// End Lex ////////////////////////////////////////////////////
 
 template <Symbol...> struct Sen {};
+template <typename s> inline constexpr auto isSentinels = false;
+template <Symbol... ss> inline constexpr auto isSentinels<Sen<ss...>> = true;
+template <typename s>
+concept IsSentinels = isSentinels<s>;
+
 template <typename...> struct Nodes {};
-template <typename, typename, typename> struct Step;
-template <Symbol, typename, typename, typename> struct DoAction;
-template <Symbol, typename, typename, typename> struct ConsumeTerminal;
-template <Symbol, typename, typename, typename> struct Predict;
+template <typename n> inline constexpr auto isNodes = false;
+template <typename... nn> inline constexpr auto isNodes<Nodes<nn...>> = true;
+template <typename n>
+concept IsNodes = isNodes<n>;
+
+template <IsProgress, IsSentinels, IsNodes> struct State;
+template <typename> inline constexpr auto is_state = false;
+template <typename p, typename s, typename n>
+inline constexpr auto is_state<State<p, s, n>> = true;
+template <typename s>
+concept IsState = is_state<s>;
+
+template <typename> inline constexpr auto is_result = false;
+template <typename r> inline constexpr auto is_result<ParseSuccess<r>> = true;
+template <> inline constexpr auto is_result<ParseFailure> = true;
+template <typename t>
+concept IsResult = is_result<t>;
+
+template <typename t>
+concept IsResultOrState = IsResult<t> || IsState<t>;
+
+template <Symbol, IsProgress, IsSentinels, IsNodes> struct DoAction;
+template <Symbol, IsProgress, IsSentinels, IsNodes> struct ConsumeTerminal;
+template <Symbol, IsProgress, IsSentinels, IsNodes> struct Predict;
 
 ////////////////////// ConsumeTerminal ////////////////////////////////////////
-template <typename p, typename s, typename n>
-struct ParseNext : Ty<Step<advance_t<p>, s, n>> {};
+template <IsProgress p, IsSentinels s, IsNodes n>
+struct ParseNext : Ty<State<advance_t<p>, s, n>> {};
 
-template <Symbol t, typename p, typename s, typename n>
+template <Symbol t, IsProgress p, IsSentinels s, IsNodes n>
 struct ConsumeTerminal : if_<!is_eot_v<p> && matches_v<t, current_char_v<p>>,
                              ParseNext<p, s, n>, Ty<ParseFailure>> {};
 
-template <typename p, typename s, typename n>
+template <IsProgress p, IsSentinels s, IsNodes n>
 struct ConsumeTerminal<Symbol::T_Eot, p, s, n>
-    : if_<is_eot_v<p>, Ty<Step<p, s, n>>, Ty<ParseFailure>> {};
+    : if_<is_eot_v<p>, Ty<State<p, s, n>>, Ty<ParseFailure>> {};
 ////////////////// End ConsumeTerminal ////////////////////////////////////////
 
 ////////////////////// DoAction ///////////////////////////////////////////////
-template <Symbol, typename p, typename s, typename>
-struct DoAction : Ty<Step<p, s, Nodes<int>>> {};
+template <Symbol, IsProgress p, IsSentinels s, IsNodes>
+struct DoAction : Ty<State<p, s, Nodes<int>>> {};
 
-template <typename p, typename s, typename n>
+template <IsProgress p, IsSentinels s, IsNodes n>
 struct DoAction<Symbol::A_Reject, p, s, n> : Ty<ParseFailure> {};
 ////////////////// End DoAction ///////////////////////////////////////////////
 
-////////////////////// Predict ////////////////////////////////////////////////
+// Predict {{{
 
 namespace produce {
 using enum Symbol;
@@ -227,46 +260,60 @@ template <> struct Produce<Lit, T_Reg> : Prod<10> {};
 template <Symbol nt, Symbol p>
 using produce_t = typename produce::Produce<nt, p>::type;
 
-template <Symbol nt, typename p, typename s, typename n>
-struct Predict : Ty<Step<p, concat_t<produce_t<nt, lex_v<p>>, s>, Nodes<int>>> {
-};
+template <Symbol nt, IsProgress p, IsSentinels s, IsNodes n>
+struct Predict
+    : Ty<State<p, concat_t<produce_t<nt, lex_v<p>>, s>, Nodes<int>>> {};
+// }}}
 
-////////////////// End Predict ////////////////////////////////////////////////
-
-// {{{ Step
-
-template <typename, typename, typename> struct Step {};
+// State {{{
 
 constexpr bool isAction(Symbol s) { return s > Symbol::ACTIONS; }
 constexpr bool isTerminal(Symbol s) {
   return s > Symbol::TERMINALS && s < Symbol::ACTIONS;
 }
 
-template <typename> struct NextStep;
-template <typename node, typename p>
-struct NextStep<Step<p, Sen<>, Nodes<node>>>
+template <IsResultOrState s> struct Test {
+  static constexpr auto value = true;
+};
+
+template <IsResultOrState> struct Step;
+template <typename node, IsProgress p>
+struct Step<State<p, Sen<>, Nodes<node>>>
     : if_<is_eot_v<p>, Ty<ParseSuccess<node>>, Ty<ParseFailure>> {};
 
-template <typename r, Symbol t, Symbol... ss, typename n>
-struct NextStep<Step<r, Sen<t, ss...>, n>>
+template <IsProgress r, Symbol t, Symbol... ss, IsNodes n>
+struct Step<State<r, Sen<t, ss...>, n>>
     : if_<isAction(t), DoAction<t, r, Sen<ss...>, n>,
           if_<isTerminal(t), ConsumeTerminal<t, r, Sen<ss...>, n>,
               Predict<t, r, Sen<ss...>, n>>> {};
 
-template <typename> struct Iterate;
-template <typename p, typename s, typename n>
-struct Iterate<Step<p, s, n>>
-    : Iterate<typename NextStep<Step<p, s, n>>::type> {};
-template <typename t> struct Iterate : Ty<t> {};
+template <IsResult t> struct Step<t> : Ty<t> {};
+template <IsResultOrState t> using step_t = typename Step<t>::type;
+
+template <RegexString regex>
+struct InitialState
+    : Ty<State<Progress<regex.data, 0>, Sen<Symbol::S>, Nodes<>>> {};
+template <RegexString regex>
+using initial_state_t = typename InitialState<regex>::type;
+
+template <IsResultOrState s, size_t N> struct Iter;
+template <IsResultOrState s, size_t N> using iter_t = Iter<s, N>::type;
+
+template <IsResultOrState s> struct Iter<s, 0> : Step<s> {};
+template <IsResultOrState s, size_t N>
+struct Iter : Iter<iter_t<s, N - 1>, N - 1> {};
+
+template <IsResultOrState s, size_t N = 0>
+struct IterTilFixed : if_<std::is_same_v<s, iter_t<s, N>>, Ty<s>,
+                          IterTilFixed<iter_t<s, N>, N + 1>> {};
 
 // }}}
 
 } // namespace detail
 
 template <RegexString regex>
-struct CompileTimeRegex
-    : detail::Iterate<detail::Step<detail::Progress<regex.data, 0>,
-                                   detail::Sen<Symbol::S>, detail::Nodes<>>> {};
+struct CompileTimeRegex : detail::IterTilFixed<detail::initial_state_t<regex>> {
+};
 
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
