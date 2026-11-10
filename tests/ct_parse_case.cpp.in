@@ -5,17 +5,44 @@
 
 #include "toyctre/compile_time.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <string>
 #include <type_traits>
+
+#cmakedefine01 CT_EXPECT_REJECT
 
 using toyctre::compile_time::compile_time_regex_t;
 using toyctre::compile_time::ParseFailure;
 
+constexpr auto regex = R"__re__(@CT_REGEX@)__re__";
 using Result = compile_time_regex_t<R"__re__(@CT_REGEX@)__re__">;
 
-#if @CT_EXPECT_REJECT@
+#if CT_EXPECT_REJECT
 static_assert(std::is_same_v<Result, ParseFailure>,
               "expected regex to be rejected (result should be ParseFailure)");
 #else
-static_assert(!std::is_same_v<Result, ParseFailure>,
-              "expected regex to be accepted (result should not be ParseFailure)");
+static_assert(
+    !std::is_same_v<Result, ParseFailure>,
+    "expected regex to be accepted (result should not be ParseFailure)");
+
+// static_assert with a computed message (C++26 P2741, enabled in C++23 mode
+// via -Wno-c++26-extensions in ct_parser_cases.cmake). A std::string can't
+// outlive constant evaluation, so copy the message into a fixed-size buffer.
+template <auto F> constexpr auto frozen() {
+  constexpr auto N = F().size();
+  struct Msg {
+    std::array<char, N> buf{};
+    constexpr const char *data() const { return buf.data(); }
+    constexpr std::size_t size() const { return N; }
+  } m;
+  std::ranges::copy(F(), m.buf.begin());
+  return m;
+}
+
+static_assert(Result::result::toString() == regex, frozen<[] {
+  return "round trip mismatch: got '" + Result::result::toString() +
+         "', expected '" + std::string{regex} + "'";
+}>());
 #endif

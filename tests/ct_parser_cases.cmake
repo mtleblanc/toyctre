@@ -20,6 +20,8 @@ set(CT_PARSE_FLAGS
   -std=c++${CMAKE_CXX_STANDARD}
   -fsyntax-only
   -Wall -Wextra -Wpedantic -Werror
+  # static_assert with a computed message (C++26) is used in C++23 mode.
+  -Wno-c++26-extensions
   -I${PROJECT_SOURCE_DIR}/include
 )
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
