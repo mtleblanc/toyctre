@@ -1,7 +1,7 @@
 #pragma once
 
-#include "lib.hpp"
 #include <algorithm>
+#include <string>
 
 namespace toyctre {
 namespace compile_time {
@@ -50,6 +50,13 @@ template <typename t, template <typename...> class LIST, typename... l1>
 struct Push<t, LIST<l1...>> : Ty<LIST<t, l1...>> {};
 template <typename t, typename l> using push_t = typename Push<t, l>::type;
 
+template <typename, typename> struct ReplaceHead;
+template <typename t, template <typename...> class LIST, typename h,
+          typename... l1>
+struct ReplaceHead<t, LIST<h, l1...>> : Ty<LIST<t, l1...>> {};
+template <typename t, typename l>
+using replace_head_t = typename ReplaceHead<t, l>::type;
+
 template <typename, typename> struct PushBack;
 template <typename t, template <typename...> class LIST, typename... l1>
 struct PushBack<t, LIST<l1...>> : Ty<LIST<l1..., t>> {};
@@ -79,6 +86,39 @@ template <size_t N> struct RegexString {
   constexpr auto size() const { return N; }
 };
 
+enum class Symbol {
+  S,
+  Alt,
+  Cat,
+  Cats,
+  Reps,
+  Unt,
+  Amt,
+  Lit,
+
+  TERMINALS,
+  T_Rep,
+  T_LPar,
+  T_RPar,
+  T_Slash,
+  T_Bar,
+  T_Reg,
+  T_Eot,
+
+  ACTIONS,
+  A_Mark,
+  A_Alts,
+  A_Cats,
+  A_Group,
+  A_Lit,
+  A_Esc,
+  A_Rep,
+
+  A_Reject,
+
+  SIZE
+};
+
 template <char c> struct LexChar {
   static constexpr auto value = []() {
     using enum Symbol;
@@ -100,33 +140,36 @@ template <char c> struct LexChar {
     }
   }();
 };
-template <char c> static constexpr auto lex_char_v = LexChar<c>::value;
+template <char c> inline constexpr auto lex_char_v = LexChar<c>::value;
 // }}}
 
 // Tree {{{
 namespace parse_tree {
 
-template <typename t> static constexpr auto isParseNode = false;
+template <typename t> inline constexpr auto isParseNode = false;
 template <typename t>
 concept IsParseNode = isParseNode<t>;
 
 template <IsParseNode n> struct Regex {
   static constexpr std::string toString() { return n::toString(); }
 };
-template <IsParseNode n> static constexpr auto isParseNode<Regex<n>> = true;
+template <IsParseNode n> inline constexpr auto isParseNode<Regex<n>> = true;
+
+struct Mark {};
+template <> inline constexpr auto isParseNode<Mark> = true;
 
 template <IsParseNode n> struct Group {
   static constexpr std::string toString() {
     return std::string{"("} + n::toString() + ')';
   }
 };
-template <IsParseNode n> static constexpr auto isParseNode<Group<n>> = true;
+template <IsParseNode n> inline constexpr auto isParseNode<Group<n>> = true;
 
 template <IsParseNode... ns> struct Sequence {
   static constexpr std::string toString() { return (ns::toString() + ...); }
 };
 template <IsParseNode... ns>
-static constexpr auto isParseNode<Sequence<ns...>> = true;
+inline constexpr auto isParseNode<Sequence<ns...>> = true;
 
 template <IsParseNode... ns> struct Alternatives {
   static constexpr std::string toString() {
@@ -135,13 +178,13 @@ template <IsParseNode... ns> struct Alternatives {
   }
 };
 template <IsParseNode... ns>
-static constexpr auto isParseNode<Alternatives<ns...>> = true;
+inline constexpr auto isParseNode<Alternatives<ns...>> = true;
 
 template <IsParseNode n, char r> struct Repetition {
   static constexpr std::string toString() { return n::toString() + r; }
 };
 template <IsParseNode n, char r>
-static constexpr auto isParseNode<Repetition<n, r>> = true;
+inline constexpr auto isParseNode<Repetition<n, r>> = true;
 
 template <bool e, char c> struct Literal {
   static constexpr std::string toString() {
@@ -152,7 +195,7 @@ template <bool e, char c> struct Literal {
   }
 };
 template <bool e, char c>
-static constexpr auto isParseNode<Literal<e, c>> = true;
+inline constexpr auto isParseNode<Literal<e, c>> = true;
 
 } // namespace parse_tree
 using namespace parse_tree;
@@ -185,23 +228,23 @@ template <RegexString r, size_t M> struct CurrentChar<Progress<r, M>> {
 };
 
 template <IsProgress p>
-static constexpr auto current_char_v = CurrentChar<p>::value;
+inline constexpr auto current_char_v = CurrentChar<p>::value;
 
 template <IsProgress> struct IsEot : std::false_type {};
 template <RegexString r>
 struct IsEot<Progress<r, r.size() - 1>> : std::true_type {};
-template <IsProgress p> static constexpr auto is_eot_v = IsEot<p>::value;
+template <IsProgress p> inline constexpr auto is_eot_v = IsEot<p>::value;
 
 template <Symbol t, char c> struct Matches {
   static constexpr auto value = lex_char_v<c> == t;
 };
 template <Symbol t, char c>
-static constexpr auto matches_v = Matches<t, c>::value;
+inline constexpr auto matches_v = Matches<t, c>::value;
 
 template <IsProgress p>
 struct Lex : if_value<Symbol, is_eot_v<p>, Symbol::T_Eot,
                       lex_char_v<current_char_v<p>>> {};
-template <IsProgress p> static constexpr auto lex_v = Lex<p>::value;
+template <IsProgress p> inline constexpr auto lex_v = Lex<p>::value;
 
 } // namespace progress
 
@@ -223,9 +266,9 @@ template <Symbol... ss> inline constexpr auto isSentinels<Sen<ss...>> = true;
 template <typename s>
 concept IsSentinels = isSentinels<s>;
 
-template <typename...> struct Nodes {};
+template <IsParseNode...> struct Nodes {};
 template <typename n> inline constexpr auto isNodes = false;
-template <typename... nn> inline constexpr auto isNodes<Nodes<nn...>> = true;
+template <IsParseNode... nn> inline constexpr auto isNodes<Nodes<nn...>> = true;
 template <typename n>
 concept IsNodes = isNodes<n>;
 
@@ -276,74 +319,48 @@ using consume::ConsumeTerminal;
 namespace action {
 using enum Symbol;
 
-template <Symbol, IsProgress, IsSentinels, IsNodes> struct DoAction {
+template <Symbol, char, IsNodes> struct NextNodes {
   static_assert(false, "Unrecognized action");
 };
+template <Symbol a, char c, IsNodes n>
+using next_nodes_t = typename NextNodes<a, c, n>::type;
 
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_EAlt, p, s, n> : Ty<State<p, s, push_t<Alternatives<>, n>>> {
+template <IsParseNode acc, IsNodes n> struct MergeInto;
+template <IsParseNode acc, IsNodes n>
+using merge_into_t = typename MergeInto<acc, n>::type;
+template <IsParseNode acc, IsNodes n> struct MergeInto {
+  using head = head_t<n>;
+  using rest = tail_t<n>;
+  using type = if_t<std::is_same_v<head, Mark>, Push<acc, rest>,
+                    MergeInto<push_t<head, acc>, rest>>;
 };
 
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_AReg, p, s, n> {
-  using next = push_t<Regex<head_t<n>>, tail_t<n>>;
-  using type = State<p, s, next>;
-};
-
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_AGrp, p, s, n> {
-  using group = Group<head_t<n>>;
-  using next = push_t<group, tail_t<n>>;
-  using type = State<p, s, next>;
-};
-
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_ECat, p, s, n> : Ty<State<p, s, push_t<Sequence<>, n>>> {};
-
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_ACat, p, s, n> {
-  using cat = head_t<n>;
-  using alt = head_t<tail_t<n>>;
+template <template <typename...> class L, IsNodes n> struct Merge {
+  using first = head_t<n>;
+  using second = head_t<tail_t<n>>;
   using rest = tail_t<tail_t<n>>;
-  using new_alt = push_back_t<cat, alt>;
-  using next = push_t<new_alt, rest>;
-  using type = State<p, s, next>;
+  using type = if_t<std::is_same_v<second, Mark>, Push<first, rest>,
+                    MergeInto<L<second, first>, rest>>;
 };
 
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_ERep, p, s, n> : Ty<State<p, s, n>> {};
+template <char c, IsNodes n> struct NextNodes<A_Mark, c, n> : Push<Mark, n> {};
 
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_ARep, p, s, n> {
-  using cat = head_t<n>;
-  using alt = head_t<tail_t<n>>;
-  using rest = tail_t<tail_t<n>>;
-  using new_alt = push_back_t<cat, alt>;
-  using next = push_t<new_alt, rest>;
-  using type = State<p, s, next>;
-};
+template <char c, IsNodes n>
+struct NextNodes<A_Alts, c, n> : Merge<Alternatives, n> {};
+template <char c, IsNodes n>
+struct NextNodes<A_Cats, c, n> : Merge<Sequence, n> {};
+template <char c, IsNodes n>
+struct NextNodes<A_Group, c, n> : ReplaceHead<Group<head_t<n>>, n> {};
 
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_REsc, p, s, n> {
-  using lit = Literal<true, current_char_v<p>>;
-  using next = push_t<lit, n>;
-  using type = State<p, s, next>;
-};
+template <char c, IsNodes n>
+struct NextNodes<A_Lit, c, n> : Push<Literal<false, c>, n> {};
+template <char c, IsNodes n>
+struct NextNodes<A_Esc, c, n> : Push<Literal<true, c>, n> {};
+template <char c, IsNodes n>
+struct NextNodes<A_Rep, c, n> : ReplaceHead<Repetition<head_t<n>, c>, n> {};
 
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_RLit, p, s, n> {
-  using lit = Literal<false, current_char_v<p>>;
-  using next = push_t<lit, n>;
-  using type = State<p, s, next>;
-};
-
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_RRep, p, s, n> {
-  using rep = Repetition<head_t<n>, current_char_v<p>>;
-  using next = push_t<rep, tail_t<n>>;
-  using type = State<p, s, next>;
-};
-
+template <Symbol a, IsProgress p, IsSentinels s, IsNodes n>
+struct DoAction : Ty<State<p, s, next_nodes_t<a, current_char_v<p>, n>>> {};
 template <IsProgress p, IsSentinels s, IsNodes n>
 struct DoAction<A_Reject, p, s, n> : Ty<ParseFailure> {};
 
@@ -362,26 +379,24 @@ template <Symbol nt, Symbol p> struct Produce {
 
 template <size_t> struct Prod;
 
-template <> struct Prod<1> : Ty<Sen<A_EAlt, Alt, T_Eot, A_AReg>> {}; // S
-template <> struct Prod<2> : Ty<Sen<A_ECat, Cat, A_ACat, Cats>> {};  // Alt
-template <>
-struct Prod<3> : Ty<Sen<T_Bar, A_ECat, Cat, A_ACat, Cats>> {};           // Cats
+template <> struct Prod<1> : Ty<Sen<Alt, T_Eot>> {};                     // S
+template <> struct Prod<2> : Ty<Sen<A_Mark, Cat, Cats, A_Alts>> {};      // Alt
+template <> struct Prod<3> : Ty<Sen<T_Bar, Cat, Cats>> {};               // Cats
 template <> struct Prod<4> : Ty<Sen<>> {};                               // Cats
-template <> struct Prod<5> : Ty<Sen<A_ERep, Unt, Amt, A_ARep, Reps>> {}; // Cat
-template <> struct Prod<6> : Ty<Sen<A_ERep, Unt, Amt, A_ARep, Reps>> {}; // Reps
+template <> struct Prod<5> : Ty<Sen<A_Mark, Unt, Amt, Reps, A_Cats>> {}; // Cat
+template <> struct Prod<6> : Ty<Sen<Unt, Amt, Reps>> {};                 // Reps
 template <> struct Prod<7> : Ty<Sen<>> {};                               // Reps
-template <> struct Prod<8> : Ty<Sen<A_RLit, T_Reg>> {};                  // Unt
-template <> struct Prod<9> : Ty<Sen<T_Slash, A_REsc, Lit>> {};           // Unt
+template <> struct Prod<8> : Ty<Sen<A_Lit, T_Reg>> {};                   // Unt
+template <> struct Prod<9> : Ty<Sen<T_Slash, A_Esc, Lit>> {};            // Unt
 template <> struct Prod<10> : Ty<Sen<T_Reg>> {};                         // Lit
 template <> struct Prod<11> : Ty<Sen<T_Rep>> {};                         // Lit
 template <> struct Prod<12> : Ty<Sen<T_LPar>> {};                        // Lit
 template <> struct Prod<13> : Ty<Sen<T_RPar>> {};                        // Lit
 template <> struct Prod<14> : Ty<Sen<T_Slash>> {};                       // Lit
 template <> struct Prod<15> : Ty<Sen<T_Bar>> {};                         // Lit
-template <>
-struct Prod<16> : Ty<Sen<T_LPar, A_EAlt, Alt, A_AGrp, T_RPar>> {}; // Unt
-template <> struct Prod<17> : Ty<Sen<A_RRep, T_Rep>> {};           // Amt
-template <> struct Prod<18> : Ty<Sen<>> {};                        // Amt
+template <> struct Prod<16> : Ty<Sen<T_LPar, Alt, A_Group, T_RPar>> {};  // Unt
+template <> struct Prod<17> : Ty<Sen<A_Rep, T_Rep>> {};                  // Amt
+template <> struct Prod<18> : Ty<Sen<>> {};                              // Amt
 template <> struct Produce<S, T_LPar> : Prod<1> {};
 template <> struct Produce<S, T_Slash> : Prod<1> {};
 template <> struct Produce<S, T_Reg> : Prod<1> {};
@@ -437,7 +452,7 @@ template <IsResultOrState s> struct Test {
 };
 
 template <IsResultOrState> struct Step;
-template <typename node, IsProgress p>
+template <IsParseNode node, IsProgress p>
 struct Step<State<p, Sen<>, Nodes<node>>>
     : if_<is_eot_v<p>, Ty<ParseSuccess<node>>, Ty<ParseFailure>> {};
 
