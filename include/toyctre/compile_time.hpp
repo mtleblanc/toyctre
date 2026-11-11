@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 
 namespace toyctre {
 namespace compile_time {
@@ -247,7 +248,6 @@ struct Lex : if_value<Symbol, is_eot_v<p>, Symbol::T_Eot,
 template <IsProgress p> inline constexpr auto lex_v = Lex<p>::value;
 
 } // namespace progress
-
 using progress::advance_t;
 using progress::current_char_v;
 using progress::is_eot_v;
@@ -294,7 +294,6 @@ template <typename t>
 concept IsResultOrState = IsResult<t> || IsState<t>;
 
 } // namespace state
-
 using namespace state;
 // }}}
 
@@ -311,7 +310,6 @@ template <IsProgress p, IsSentinels s, IsNodes n>
 struct ConsumeTerminal<Symbol::T_Eot, p, s, n>
     : if_<is_eot_v<p>, Ty<State<p, s, n>>, Ty<ParseFailure>> {};
 } // namespace consume
-
 using consume::ConsumeTerminal;
 // }}}
 
@@ -365,7 +363,6 @@ template <IsProgress p, IsSentinels s, IsNodes n>
 struct DoAction<A_Reject, p, s, n> : Ty<ParseFailure> {};
 
 } // namespace action
-
 using action::DoAction;
 // }}}
 
@@ -373,6 +370,7 @@ using action::DoAction;
 
 namespace produce {
 using enum Symbol;
+
 template <Symbol nt, Symbol p> struct Produce {
   using type = Sen<A_Reject>;
 };
@@ -432,16 +430,20 @@ template <> struct Produce<Lit, T_Slash> : Prod<14> {};
 template <> struct Produce<Lit, T_Bar> : Prod<15> {};
 template <> struct Produce<Lit, T_Reg> : Prod<10> {};
 
-} // namespace produce
 template <Symbol nt, Symbol p>
 using produce_t = typename produce::Produce<nt, p>::type;
 
 template <Symbol nt, IsProgress p, IsSentinels s, IsNodes n>
 struct Predict : Ty<State<p, concat_t<produce_t<nt, lex_v<p>>, s>, n>> {};
+
+} // namespace produce
+using produce::Predict;
+using produce::produce_t;
 // }}}
 
 // Iterate {{{
 
+namespace iterate {
 constexpr bool isAction(Symbol s) { return s > Symbol::ACTIONS; }
 constexpr bool isTerminal(Symbol s) {
   return s > Symbol::TERMINALS && s < Symbol::ACTIONS;
@@ -481,11 +483,156 @@ struct Iter : Iter<iter_t<s, N - 1>, N - 1> {};
 template <IsResultOrState s, size_t N = 0>
 struct IterTilFixed : if_<std::is_same_v<s, iter_t<s, N>>, Ty<s>,
                           IterTilFixed<iter_t<s, N>, N + 1>> {};
+} // namespace iterate
 
+using iterate::initial_state_t;
+using iterate::IterTilFixed;
 // }}}
+
+namespace match {
+template <IsParseNode> struct ContinuationMatcher;
+
+template <bool e, char c> struct ContinuationMatcher<Literal<e, c>> {
+  static constexpr auto match(std::string_view text, auto &&rest) {
+    if (text.empty() || text.front() != c)
+      return false;
+    return std::forward<decltype(rest)>(rest)(text.substr(1));
+  }
+};
+
+template <IsParseNode n, IsParseNode... ns>
+struct ContinuationMatcher<Sequence<n, ns...>> {
+  static constexpr auto match(std::string_view text, auto &&rest) {
+    auto next = [&](std::string_view nextText) {
+      return ContinuationMatcher<Sequence<ns...>>::match(
+          nextText, std::forward<decltype(rest)>(rest));
+    };
+    return ContinuationMatcher<n>::match(text, next);
+  }
+};
+
+template <> struct ContinuationMatcher<Sequence<>> {
+  static constexpr auto match(std::string_view text, auto &&rest) {
+    return std::forward<decltype(rest)>(rest)(text);
+  }
+};
+
+template <IsParseNode... ns> struct ContinuationMatcher<Alternatives<ns...>> {
+  static constexpr auto match(std::string_view text, auto &&rest) {
+    return (ContinuationMatcher<ns>::match(text, rest) || ...);
+  }
+};
+
+template <> struct ContinuationMatcher<Alternatives<>> {
+  static constexpr auto match(std::string_view, auto &&) { return false; }
+};
+
+template <IsParseNode n> struct ContinuationMatcher<Group<n>> {
+  static constexpr auto match(std::string_view text, auto &&rest) {
+    return std::forward<decltype(rest)>(rest)(text);
+  }
+};
+
+template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '?'>> {
+  static constexpr auto match(std::string_view text, auto &&rest) {
+    return ContinuationMatcher<n>::match(text, rest) ||
+           std::forward<decltype(rest)>(rest)(text);
+  }
+};
+
+template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '*'>> {
+  static constexpr auto match(std::string_view text, auto &&rest) -> bool {
+    auto next = [&](std::string_view nextText) {
+      return match(nextText, std::forward<decltype(rest)>(rest));
+    };
+    return ContinuationMatcher<n>::match(text, next) ||
+           std::forward<decltype(rest)>(rest)(text);
+  }
+};
+
+template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '+'>> {
+  static constexpr auto match(std::string_view text, auto &&rest) {
+    auto next = [&](std::string_view nextText) {
+      return ContinuationMatcher<Repetition<n, '*'>>::match(
+          nextText, std::forward<decltype(rest)>(rest));
+    };
+    return ContinuationMatcher<n>::match(text, next);
+  }
+};
+
+template <IsParseNode n> struct Matcher {
+  static constexpr auto match(std::string_view text) {
+    return ContinuationMatcher<n>::match(
+        text, [](std::string_view text) { return text.empty(); });
+  }
+};
+
+namespace match_tests {
+static constexpr auto partial = [](auto &&) { return true; };
+static constexpr auto full = [](auto text) { return text.empty(); };
+using lita = ContinuationMatcher<Literal<true, 'a'>>;
+static_assert(lita::match("a", partial));
+static_assert(lita::match("abc", partial));
+static_assert(lita::match("a", full));
+static_assert(lita::match("abc", full) == false);
+static_assert(lita::match("b", partial) == false);
+static_assert(lita::match("", partial) == false);
+
+using seqab =
+    ContinuationMatcher<Sequence<Literal<true, 'a'>, Literal<true, 'b'>>>;
+static_assert(seqab::match("ab", partial));
+static_assert(seqab::match("abc", partial));
+static_assert(seqab::match("ab", full));
+static_assert(seqab::match("abc", full) == false);
+static_assert(seqab::match("ba", partial) == false);
+static_assert(seqab::match("", partial) == false);
+
+using altab =
+    ContinuationMatcher<Alternatives<Literal<true, 'a'>, Literal<true, 'b'>>>;
+static_assert(altab::match("ab", partial));
+static_assert(altab::match("ba", partial));
+static_assert(altab::match("a", full));
+static_assert(altab::match("b", full));
+static_assert(altab::match("abc", full) == false);
+static_assert(altab::match("ba", full) == false);
+static_assert(altab::match("", partial) == false);
+
+using optionalab = ContinuationMatcher<
+    Sequence<Literal<true, 'a'>, Repetition<Literal<true, 'b'>, '?'>>>;
+static_assert(optionalab::match("ab", partial));
+static_assert(optionalab::match("a", partial));
+static_assert(optionalab::match("abc", partial));
+static_assert(optionalab::match("ac", partial));
+static_assert(optionalab::match("a", full));
+static_assert(optionalab::match("ab", full));
+static_assert(optionalab::match("abc", full) == false);
+static_assert(optionalab::match("ac", full) == false);
+static_assert(optionalab::match("", partial) == false);
+static_assert(optionalab::match("", full) == false);
+
+using stara = ContinuationMatcher<Repetition<Literal<true, 'a'>, '*'>>;
+static_assert(stara::match("ab", partial));
+static_assert(stara::match("a", partial));
+static_assert(stara::match("abc", partial));
+static_assert(stara::match("ac", partial));
+static_assert(stara::match("a", full));
+static_assert(stara::match("aaaaaaaaa", full));
+static_assert(stara::match("abc", full) == false);
+static_assert(stara::match("ac", full) == false);
+static_assert(stara::match("", partial));
+static_assert(stara::match("", full));
+
+static_assert(Matcher<Repetition<Literal<true, 'a'>, '*'>>::match("aaaaa"));
+static_assert(Matcher<Repetition<Literal<true, 'a'>, '*'>>::match("aaaaab") ==
+              false);
+} // namespace match_tests
+
+} // namespace match
+using match::Matcher;
 
 } // namespace detail
 
+using detail::Matcher;
 using detail::ParseFailure;
 using detail::ParseSuccess;
 using detail::RegexString;
