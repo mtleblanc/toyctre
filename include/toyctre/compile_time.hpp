@@ -1,8 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
+#include <cstddef>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace toyctre {
 namespace compile_time {
@@ -20,14 +23,6 @@ template <typename T, typename F> struct if_<false, T, F> {
 
 template <bool b, typename t, typename f>
 using if_t = typename if_<b, t, f>::type;
-
-template <typename V, bool, V, V> struct if_value;
-template <typename V, V t, V f> struct if_value<V, true, t, f> {
-  static constexpr V value = t;
-};
-template <typename V, V t, V f> struct if_value<V, false, t, f> {
-  static constexpr V value = f;
-};
 
 template <typename T> struct Ty {
   using type = T;
@@ -74,12 +69,6 @@ template <template <typename...> class LIST, typename h, typename... t>
 struct Tail<LIST<h, t...>> : Ty<LIST<t...>> {};
 template <typename l> using tail_t = typename Tail<l>::type;
 
-template <typename> struct IsEmpty;
-template <template <typename...> class LIST>
-struct IsEmpty<LIST<>> : std::true_type {};
-template <template <typename...> class LIST, typename... t>
-struct IsEmpty<LIST<t...>> : std::false_type {};
-template <typename t> inline constexpr auto is_empty_v = IsEmpty<t>::value;
 } // namespace helpers
 // }}}
 
@@ -235,12 +224,6 @@ template <IsProgress p> inline constexpr auto is_eot_v = IsEot<p>::value;
 template <typename t>
 concept IsAtEot = IsProgress<t> && is_eot_v<t>;
 
-template <Symbol t, char c> struct Matches {
-  static constexpr auto value = lex_char_v<c> == t;
-};
-template <Symbol t, char c>
-inline constexpr auto matches_v = Matches<t, c>::value;
-
 template <IsProgress p> struct Lex {
   static constexpr auto value =
       is_eot_v<p> ? Symbol::T_Eot : lex_char_v<current_char_v<p>>;
@@ -254,7 +237,6 @@ using progress::is_eot_v;
 using progress::IsAtEot;
 using progress::IsProgress;
 using progress::lex_v;
-using progress::matches_v;
 using progress::Progress;
 // }}}
 
@@ -269,7 +251,7 @@ concept IsSentinels = isSentinels<s>;
 
 struct Mark {};
 template <typename t>
-concept IsNodeListItem = IsRegex<t> || std::is_same_v<t, Mark>;
+concept IsNodeListItem = IsRegex<t> || std::same_as<t, Mark>;
 
 template <IsNodeListItem...> struct Nodes {};
 template <typename n> inline constexpr auto isNodes = false;
@@ -309,8 +291,11 @@ namespace consume {
 template <Symbol t, IsProgress p, IsSentinels s, IsNodes n>
 struct ConsumeTerminal : Ty<ParseFailure> {};
 
+// Can't have this firing on EOT as advance would be an error.  The check is
+// unnecessary since the IsAtEot specialization is more specific, but it is
+// included for clarity
 template <Symbol t, IsProgress p, IsSentinels s, IsNodes n>
-  requires(t == lex_v<p>)
+  requires(t != Symbol::T_Eot && t == lex_v<p>)
 struct ConsumeTerminal<t, p, s, n> : Ty<State<advance_t<p>, s, n>> {};
 
 template <IsAtEot p, IsSentinels s, IsNodes n>
@@ -453,7 +438,7 @@ constexpr bool isTerminal(Symbol s) {
 }
 
 template <IsResultOrState> struct Step {
-  static_assert("Invalid state");
+  static_assert(false, "Invalid state");
 };
 
 template <IsRegex node, IsAtEot p>
