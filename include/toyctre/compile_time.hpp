@@ -490,141 +490,126 @@ using iterate::IterTilFixed;
 // }}}
 
 namespace match {
-template <IsParseNode> struct ContinuationMatcher;
 
-template <bool e, char c> struct ContinuationMatcher<Literal<e, c>> {
-  static constexpr auto match(std::string_view text, auto &&rest) {
+template <IsParseNode> struct TypeListMatcher;
+template <IsNodes ns> struct MatchTypes {
+  using n = head_t<ns>;
+  using rest_t = tail_t<ns>;
+  static constexpr auto match(std::string_view text) {
+    return TypeListMatcher<n>::match(text, rest_t{});
+  }
+};
+
+template <> struct MatchTypes<Nodes<>> {
+  static constexpr auto match(std::string_view text) { return text.empty(); }
+};
+
+template <bool e, char c> struct TypeListMatcher<Literal<e, c>> {
+  static constexpr auto match(std::string_view text, IsNodes auto rest) {
     if (text.empty() || text.front() != c)
       return false;
-    return rest(text.substr(1));
+    return MatchTypes<decltype(rest)>::match(text.substr(1));
   }
 };
 
 template <IsParseNode n, IsParseNode... ns>
-struct ContinuationMatcher<Sequence<n, ns...>> {
-  static constexpr auto match(std::string_view text, auto &&rest) {
-    auto next = [&](std::string_view nextText) {
-      return ContinuationMatcher<Sequence<ns...>>::match(nextText, rest);
-    };
-    return ContinuationMatcher<n>::match(text, next);
+struct TypeListMatcher<Sequence<n, ns...>> {
+  static constexpr auto match(std::string_view text, IsNodes auto rest) {
+    return TypeListMatcher<n>::match(text,
+                                     push_t<Sequence<ns...>, decltype(rest)>{});
   }
 };
 
-template <> struct ContinuationMatcher<Sequence<>> {
-  static constexpr auto match(std::string_view text, auto &&rest) {
-    return rest(text);
+template <> struct TypeListMatcher<Sequence<>> {
+  static constexpr auto match(std::string_view text, IsNodes auto rest) {
+    return MatchTypes<decltype(rest)>::match(text);
   }
 };
 
-template <IsParseNode... ns> struct ContinuationMatcher<Alternatives<ns...>> {
-  static constexpr auto match(std::string_view text, auto &&rest) {
-    return (ContinuationMatcher<ns>::match(text, rest) || ...);
+template <IsParseNode... ns> struct TypeListMatcher<Alternatives<ns...>> {
+  static constexpr auto match(std::string_view text, IsNodes auto rest) {
+    return (TypeListMatcher<ns>::match(text, rest) || ...);
   }
 };
 
-template <> struct ContinuationMatcher<Alternatives<>> {
-  static constexpr auto match(std::string_view, auto &&) { return false; }
+template <> struct TypeListMatcher<Alternatives<>> {
+  static constexpr auto match(std::string_view, IsNodes auto) { return false; }
 };
 
-template <IsParseNode n> struct ContinuationMatcher<Group<n>> {
-  static constexpr auto match(std::string_view text, auto &&rest) {
-    return ContinuationMatcher<n>::match(text, rest);
+template <IsParseNode n> struct TypeListMatcher<Group<n>> {
+  static constexpr auto match(std::string_view text, IsNodes auto rest) {
+    return TypeListMatcher<n>::match(text, rest);
   }
 };
 
-template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '?'>> {
-  static constexpr auto match(std::string_view text, auto &&rest) {
-    return ContinuationMatcher<n>::match(text, rest) || rest(text);
+template <IsParseNode n> struct TypeListMatcher<Repetition<n, '?'>> {
+  static constexpr auto match(std::string_view text, IsNodes auto rest) {
+    return TypeListMatcher<n>::match(text, rest) ||
+           MatchTypes<decltype(rest)>::match(text);
   }
 };
 
-template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '*'>> {
-  static constexpr auto match(std::string_view text, auto &&rest) -> bool {
-    auto next = [&](std::string_view nextText) {
-      return match(nextText, rest);
-    };
-    return ContinuationMatcher<n>::match(text, next) || rest(text);
+template <IsParseNode n> struct TypeListMatcher<Repetition<n, '*'>> {
+  static constexpr auto match(std::string_view text,
+                              IsNodes auto rest) -> bool {
+    return TypeListMatcher<n>::match(
+               text, push_t<Repetition<n, '*'>, decltype(rest)>{}) ||
+           MatchTypes<decltype(rest)>::match(text);
   }
 };
 
-template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '+'>> {
-  static constexpr auto match(std::string_view text, auto &&rest) {
-    auto next = [&](std::string_view nextText) {
-      return ContinuationMatcher<Repetition<n, '*'>>::match(nextText, rest);
-    };
-    return ContinuationMatcher<n>::match(text, next);
+template <IsParseNode n> struct TypeListMatcher<Repetition<n, '+'>> {
+  static constexpr auto match(std::string_view text, IsNodes auto rest) {
+    return TypeListMatcher<n>::match(
+        text, push_t<Repetition<n, '*'>, decltype(rest)>{});
   }
 };
 
 template <IsParseNode n> struct Matcher {
   static constexpr auto match(std::string_view text) {
-    return ContinuationMatcher<n>::match(
-        text, [](std::string_view text) { return text.empty(); });
+    //   return ContinuationMatcher<n>::match(
+    //       text, [](std::string_view text) { return text.empty(); });
+    // }
+    return TypeListMatcher<n>::match(text, Nodes<>{});
   }
 };
 
-namespace match_tests {
-static constexpr auto partial = [](auto &&) { return true; };
-static constexpr auto full = [](auto text) { return text.empty(); };
-using lita = ContinuationMatcher<Literal<true, 'a'>>;
-static_assert(lita::match("a", partial));
-static_assert(lita::match("abc", partial));
-static_assert(lita::match("a", full));
-static_assert(lita::match("abc", full) == false);
-static_assert(lita::match("b", partial) == false);
-static_assert(lita::match("", partial) == false);
+namespace typelist_match_tests {
 
-using groupa = ContinuationMatcher<Group<Literal<true, 'a'>>>;
-static_assert(groupa::match("a", full));
+using lita = TypeListMatcher<Literal<true, 'a'>>;
+static_assert(lita::match("a", Nodes<>{}));
+static_assert(lita::match("abc", Nodes<>{}) == false);
 
-using seqab =
-    ContinuationMatcher<Sequence<Literal<true, 'a'>, Literal<true, 'b'>>>;
-static_assert(seqab::match("ab", partial));
-static_assert(seqab::match("abc", partial));
-static_assert(seqab::match("ab", full));
-static_assert(seqab::match("abc", full) == false);
-static_assert(seqab::match("ba", partial) == false);
-static_assert(seqab::match("", partial) == false);
+using groupa = TypeListMatcher<Group<Literal<true, 'a'>>>;
+static_assert(groupa::match("a", Nodes<>{}));
+
+using seqab = TypeListMatcher<Sequence<Literal<true, 'a'>, Literal<true, 'b'>>>;
+static_assert(seqab::match("ab", Nodes<>{}));
+static_assert(seqab::match("abc", Nodes<>{}) == false);
 
 using altab =
-    ContinuationMatcher<Alternatives<Literal<true, 'a'>, Literal<true, 'b'>>>;
-static_assert(altab::match("ab", partial));
-static_assert(altab::match("ba", partial));
-static_assert(altab::match("a", full));
-static_assert(altab::match("b", full));
-static_assert(altab::match("abc", full) == false);
-static_assert(altab::match("ba", full) == false);
-static_assert(altab::match("", partial) == false);
+    TypeListMatcher<Alternatives<Literal<true, 'a'>, Literal<true, 'b'>>>;
+static_assert(altab::match("a", Nodes<>{}));
+static_assert(altab::match("b", Nodes<>{}));
+static_assert(altab::match("abc", Nodes<>{}) == false);
+static_assert(altab::match("ba", Nodes<>{}) == false);
 
-using optionalab = ContinuationMatcher<
+using optionalab = TypeListMatcher<
     Sequence<Literal<true, 'a'>, Repetition<Literal<true, 'b'>, '?'>>>;
-static_assert(optionalab::match("ab", partial));
-static_assert(optionalab::match("a", partial));
-static_assert(optionalab::match("abc", partial));
-static_assert(optionalab::match("ac", partial));
-static_assert(optionalab::match("a", full));
-static_assert(optionalab::match("ab", full));
-static_assert(optionalab::match("abc", full) == false);
-static_assert(optionalab::match("ac", full) == false);
-static_assert(optionalab::match("", partial) == false);
-static_assert(optionalab::match("", full) == false);
+static_assert(optionalab::match("a", Nodes<>{}));
+static_assert(optionalab::match("ab", Nodes<>{}));
+static_assert(optionalab::match("abc", Nodes<>{}) == false);
+static_assert(optionalab::match("ac", Nodes<>{}) == false);
+static_assert(optionalab::match("", Nodes<>{}) == false);
 
-using stara = ContinuationMatcher<Repetition<Literal<true, 'a'>, '*'>>;
-static_assert(stara::match("ab", partial));
-static_assert(stara::match("a", partial));
-static_assert(stara::match("abc", partial));
-static_assert(stara::match("ac", partial));
-static_assert(stara::match("a", full));
-static_assert(stara::match("aaaaaaaaa", full));
-static_assert(stara::match("abc", full) == false);
-static_assert(stara::match("ac", full) == false);
-static_assert(stara::match("", partial));
-static_assert(stara::match("", full));
+using stara = TypeListMatcher<Repetition<Literal<true, 'a'>, '*'>>;
+static_assert(stara::match("a", Nodes<>{}));
+static_assert(stara::match("aaaaaaaaa", Nodes<>{}));
+static_assert(stara::match("abc", Nodes<>{}) == false);
+static_assert(stara::match("ac", Nodes<>{}) == false);
+static_assert(stara::match("", Nodes<>{}));
 
-static_assert(Matcher<Repetition<Literal<true, 'a'>, '*'>>::match("aaaaa"));
-static_assert(Matcher<Repetition<Literal<true, 'a'>, '*'>>::match("aaaaab") ==
-              false);
-} // namespace match_tests
+} // namespace typelist_match_tests
 
 } // namespace match
 using match::Matcher;
