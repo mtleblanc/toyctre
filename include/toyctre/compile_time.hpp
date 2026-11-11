@@ -158,11 +158,6 @@ template <typename t> inline constexpr auto isRegex = false;
 template <typename t>
 concept IsRegex = isRegex<t>;
 
-template <IsRegex n> struct Regex {
-  static constexpr std::string toString() { return n::toString(); }
-};
-template <IsRegex n> inline constexpr auto isRegex<Regex<n>> = true;
-
 template <IsRegex n> struct Group {
   static constexpr std::string toString() {
     return std::string{"("} + n::toString() + ')';
@@ -199,10 +194,6 @@ template <bool e, char c> struct Literal {
   }
 };
 template <bool e, char c> inline constexpr auto isRegex<Literal<e, c>> = true;
-
-struct Mark {};
-template <typename t>
-concept IsNodeListItem = isRegex<t> || std::is_same_v<t, Mark>;
 
 } // namespace parse_tree
 using namespace parse_tree;
@@ -241,6 +232,8 @@ template <IsProgress> struct IsEot : std::false_type {};
 template <RegexString r>
 struct IsEot<Progress<r, r.size() - 1>> : std::true_type {};
 template <IsProgress p> inline constexpr auto is_eot_v = IsEot<p>::value;
+template <typename t>
+concept IsAtEot = IsProgress<t> && is_eot_v<t>;
 
 template <Symbol t, char c> struct Matches {
   static constexpr auto value = lex_char_v<c> == t;
@@ -248,15 +241,17 @@ template <Symbol t, char c> struct Matches {
 template <Symbol t, char c>
 inline constexpr auto matches_v = Matches<t, c>::value;
 
-template <IsProgress p>
-struct Lex : if_value<Symbol, is_eot_v<p>, Symbol::T_Eot,
-                      lex_char_v<current_char_v<p>>> {};
+template <IsProgress p> struct Lex {
+  static constexpr auto value =
+      is_eot_v<p> ? Symbol::T_Eot : lex_char_v<current_char_v<p>>;
+};
 template <IsProgress p> inline constexpr auto lex_v = Lex<p>::value;
 
 } // namespace progress
 using progress::advance_t;
 using progress::current_char_v;
 using progress::is_eot_v;
+using progress::IsAtEot;
 using progress::IsProgress;
 using progress::lex_v;
 using progress::matches_v;
@@ -271,6 +266,10 @@ template <typename s> inline constexpr auto isSentinels = false;
 template <Symbol... ss> inline constexpr auto isSentinels<Sen<ss...>> = true;
 template <typename s>
 concept IsSentinels = isSentinels<s>;
+
+struct Mark {};
+template <typename t>
+concept IsNodeListItem = IsRegex<t> || std::is_same_v<t, Mark>;
 
 template <IsNodeListItem...> struct Nodes {};
 template <typename n> inline constexpr auto isNodes = false;
@@ -306,16 +305,17 @@ using namespace state;
 
 // ConsumeTerminal {{{
 namespace consume {
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct ParseNext : Ty<State<advance_t<p>, s, n>> {};
 
 template <Symbol t, IsProgress p, IsSentinels s, IsNodes n>
-struct ConsumeTerminal : if_<!is_eot_v<p> && matches_v<t, current_char_v<p>>,
-                             ParseNext<p, s, n>, Ty<ParseFailure>> {};
+struct ConsumeTerminal : Ty<ParseFailure> {};
 
-template <IsProgress p, IsSentinels s, IsNodes n>
-struct ConsumeTerminal<Symbol::T_Eot, p, s, n>
-    : if_<is_eot_v<p>, Ty<State<p, s, n>>, Ty<ParseFailure>> {};
+template <Symbol t, IsProgress p, IsSentinels s, IsNodes n>
+  requires(t == lex_v<p>)
+struct ConsumeTerminal<t, p, s, n> : Ty<State<advance_t<p>, s, n>> {};
+
+template <IsAtEot p, IsSentinels s, IsNodes n>
+struct ConsumeTerminal<Symbol::T_Eot, p, s, n> : Ty<State<p, s, n>> {};
+
 } // namespace consume
 using consume::ConsumeTerminal;
 // }}}
@@ -452,20 +452,27 @@ constexpr bool isTerminal(Symbol s) {
   return s > Symbol::TERMINALS && s < Symbol::ACTIONS;
 }
 
-template <IsResultOrState s> struct Test {
-  static constexpr auto value = true;
+template <IsResultOrState> struct Step {
+  static_assert("Invalid state");
 };
 
-template <IsResultOrState> struct Step;
+template <IsRegex node, IsAtEot p>
+struct Step<State<p, Sen<>, Nodes<node>>> : Ty<ParseSuccess<node>> {};
+
 template <IsRegex node, IsProgress p>
-struct Step<State<p, Sen<>, Nodes<node>>>
-    : if_<is_eot_v<p>, Ty<ParseSuccess<node>>, Ty<ParseFailure>> {};
+struct Step<State<p, Sen<>, Nodes<node>>> : Ty<ParseFailure> {};
 
 template <IsProgress r, Symbol t, Symbol... ss, IsNodes n>
-struct Step<State<r, Sen<t, ss...>, n>>
-    : if_<isAction(t), DoAction<t, r, Sen<ss...>, n>,
-          if_<isTerminal(t), ConsumeTerminal<t, r, Sen<ss...>, n>,
-              Predict<t, r, Sen<ss...>, n>>> {};
+  requires(isAction(t))
+struct Step<State<r, Sen<t, ss...>, n>> : DoAction<t, r, Sen<ss...>, n> {};
+
+template <IsProgress r, Symbol t, Symbol... ss, IsNodes n>
+  requires(isTerminal(t))
+struct Step<State<r, Sen<t, ss...>, n>> : ConsumeTerminal<t, r, Sen<ss...>, n> {
+};
+
+template <IsProgress r, Symbol t, Symbol... ss, IsNodes n>
+struct Step<State<r, Sen<t, ss...>, n>> : Predict<t, r, Sen<ss...>, n> {};
 
 template <IsResult t> struct Step<t> : Ty<t> {};
 template <IsResultOrState t> using step_t = typename Step<t>::type;
@@ -567,8 +574,6 @@ struct CompileTimeRegex : detail::IterTilFixed<detail::initial_state_t<regex>> {
 
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
-
-using test = compile_time_regex_t<"(a)">::result;
 
 } // namespace compile_time
 } // namespace toyctre
