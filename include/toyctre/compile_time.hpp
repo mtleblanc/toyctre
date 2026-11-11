@@ -73,6 +73,13 @@ template <typename> struct Tail;
 template <template <typename...> class LIST, typename h, typename... t>
 struct Tail<LIST<h, t...>> : Ty<LIST<t...>> {};
 template <typename l> using tail_t = typename Tail<l>::type;
+
+template <typename> struct IsEmpty;
+template <template <typename...> class LIST>
+struct IsEmpty<LIST<>> : std::true_type {};
+template <template <typename...> class LIST, typename... t>
+struct IsEmpty<LIST<t...>> : std::false_type {};
+template <typename t> inline constexpr auto is_empty_v = IsEmpty<t>::value;
 } // namespace helpers
 // }}}
 
@@ -147,45 +154,41 @@ template <char c> inline constexpr auto lex_char_v = LexChar<c>::value;
 // Tree {{{
 namespace parse_tree {
 
-template <typename t> inline constexpr auto isParseNode = false;
+template <typename t> inline constexpr auto isRegex = false;
 template <typename t>
-concept IsParseNode = isParseNode<t>;
+concept IsRegex = isRegex<t>;
 
-template <IsParseNode n> struct Regex {
+template <IsRegex n> struct Regex {
   static constexpr std::string toString() { return n::toString(); }
 };
-template <IsParseNode n> inline constexpr auto isParseNode<Regex<n>> = true;
+template <IsRegex n> inline constexpr auto isRegex<Regex<n>> = true;
 
-struct Mark {};
-template <> inline constexpr auto isParseNode<Mark> = true;
-
-template <IsParseNode n> struct Group {
+template <IsRegex n> struct Group {
   static constexpr std::string toString() {
     return std::string{"("} + n::toString() + ')';
   }
 };
-template <IsParseNode n> inline constexpr auto isParseNode<Group<n>> = true;
+template <IsRegex n> inline constexpr auto isRegex<Group<n>> = true;
 
-template <IsParseNode... ns> struct Sequence {
+template <IsRegex... ns> struct Sequence {
   static constexpr std::string toString() { return (ns::toString() + ...); }
 };
-template <IsParseNode... ns>
-inline constexpr auto isParseNode<Sequence<ns...>> = true;
+template <IsRegex... ns> inline constexpr auto isRegex<Sequence<ns...>> = true;
 
-template <IsParseNode... ns> struct Alternatives {
+template <IsRegex... ns> struct Alternatives {
   static constexpr std::string toString() {
     std::string res = ((ns::toString() + "|") + ...);
     return res.substr(0, res.size() - 1);
   }
 };
-template <IsParseNode... ns>
-inline constexpr auto isParseNode<Alternatives<ns...>> = true;
+template <IsRegex... ns>
+inline constexpr auto isRegex<Alternatives<ns...>> = true;
 
-template <IsParseNode n, char r> struct Repetition {
+template <IsRegex n, char r> struct Repetition {
   static constexpr std::string toString() { return n::toString() + r; }
 };
-template <IsParseNode n, char r>
-inline constexpr auto isParseNode<Repetition<n, r>> = true;
+template <IsRegex n, char r>
+inline constexpr auto isRegex<Repetition<n, r>> = true;
 
 template <bool e, char c> struct Literal {
   static constexpr std::string toString() {
@@ -195,8 +198,11 @@ template <bool e, char c> struct Literal {
     return std::string{c};
   }
 };
-template <bool e, char c>
-inline constexpr auto isParseNode<Literal<e, c>> = true;
+template <bool e, char c> inline constexpr auto isRegex<Literal<e, c>> = true;
+
+struct Mark {};
+template <typename t>
+concept IsNodeListItem = isRegex<t> || std::is_same_v<t, Mark>;
 
 } // namespace parse_tree
 using namespace parse_tree;
@@ -266,9 +272,10 @@ template <Symbol... ss> inline constexpr auto isSentinels<Sen<ss...>> = true;
 template <typename s>
 concept IsSentinels = isSentinels<s>;
 
-template <IsParseNode...> struct Nodes {};
+template <IsNodeListItem...> struct Nodes {};
 template <typename n> inline constexpr auto isNodes = false;
-template <IsParseNode... nn> inline constexpr auto isNodes<Nodes<nn...>> = true;
+template <IsNodeListItem... nn>
+inline constexpr auto isNodes<Nodes<nn...>> = true;
 template <typename n>
 concept IsNodes = isNodes<n>;
 
@@ -280,7 +287,7 @@ template <typename s>
 concept IsState = is_state<s>;
 
 struct ParseFailure {};
-template <IsParseNode n> struct ParseSuccess {
+template <IsRegex n> struct ParseSuccess {
   using result = n;
 };
 
@@ -323,23 +330,19 @@ template <Symbol, char, IsNodes> struct NextNodes {
 template <Symbol a, char c, IsNodes n>
 using next_nodes_t = typename NextNodes<a, c, n>::type;
 
-template <IsParseNode acc, IsNodes n> struct MergeInto;
-template <IsParseNode acc, IsNodes n>
-using merge_into_t = typename MergeInto<acc, n>::type;
-template <IsParseNode acc, IsNodes n> struct MergeInto {
-  using head = head_t<n>;
-  using rest = tail_t<n>;
-  using type = if_t<std::is_same_v<head, Mark>, Push<acc, rest>,
-                    MergeInto<push_t<head, acc>, rest>>;
-};
+template <IsRegex acc, IsNodeListItem... ns> struct MergeInto;
+template <IsRegex acc, IsRegex head, IsNodeListItem... rest>
+struct MergeInto<acc, head, rest...> : MergeInto<push_t<head, acc>, rest...> {};
+template <IsRegex acc, IsNodeListItem... rest>
+struct MergeInto<acc, Mark, rest...> : Push<acc, Nodes<rest...>> {};
 
-template <template <typename...> class L, IsNodes n> struct Merge {
-  using first = head_t<n>;
-  using second = head_t<tail_t<n>>;
-  using rest = tail_t<tail_t<n>>;
-  using type = if_t<std::is_same_v<second, Mark>, Push<first, rest>,
-                    MergeInto<L<second, first>, rest>>;
-};
+template <template <typename...> class L, IsNodes n> struct Merge;
+template <template <typename...> class L, IsRegex first, IsRegex second,
+          IsNodeListItem... rest>
+struct Merge<L, Nodes<first, second, rest...>>
+    : MergeInto<L<second, first>, rest...> {};
+template <template <typename...> class L, IsRegex first, IsNodeListItem... rest>
+struct Merge<L, Nodes<first, Mark, rest...>> : Push<first, Nodes<rest...>> {};
 
 template <char c, IsNodes n> struct NextNodes<A_Mark, c, n> : Push<Mark, n> {};
 
@@ -454,7 +457,7 @@ template <IsResultOrState s> struct Test {
 };
 
 template <IsResultOrState> struct Step;
-template <IsParseNode node, IsProgress p>
+template <IsRegex node, IsProgress p>
 struct Step<State<p, Sen<>, Nodes<node>>>
     : if_<is_eot_v<p>, Ty<ParseSuccess<node>>, Ty<ParseFailure>> {};
 
@@ -491,125 +494,62 @@ using iterate::IterTilFixed;
 
 namespace match {
 
-template <IsParseNode> struct TypeListMatcher;
-template <IsNodes ns> struct MatchTypes {
-  using n = head_t<ns>;
-  using rest_t = tail_t<ns>;
-  static constexpr auto match(std::string_view text) {
-    return TypeListMatcher<n>::match(text, rest_t{});
-  }
-};
+template <IsRegex...> struct Matcher;
 
-template <> struct MatchTypes<Nodes<>> {
+template <> struct Matcher<> {
   static constexpr auto match(std::string_view text) { return text.empty(); }
 };
 
-template <bool e, char c> struct TypeListMatcher<Literal<e, c>> {
-  static constexpr auto match(std::string_view text, IsNodes auto rest) {
+template <bool e, char c, IsRegex... rest>
+struct Matcher<Literal<e, c>, rest...> {
+  static constexpr auto match(std::string_view text) {
     if (text.empty() || text.front() != c)
       return false;
-    return MatchTypes<decltype(rest)>::match(text.substr(1));
+    return Matcher<rest...>::match(text.substr(1));
   }
 };
 
-template <IsParseNode n, IsParseNode... ns>
-struct TypeListMatcher<Sequence<n, ns...>> {
-  static constexpr auto match(std::string_view text, IsNodes auto rest) {
-    return TypeListMatcher<n>::match(text,
-                                     push_t<Sequence<ns...>, decltype(rest)>{});
-  }
-};
-
-template <> struct TypeListMatcher<Sequence<>> {
-  static constexpr auto match(std::string_view text, IsNodes auto rest) {
-    return MatchTypes<decltype(rest)>::match(text);
-  }
-};
-
-template <IsParseNode... ns> struct TypeListMatcher<Alternatives<ns...>> {
-  static constexpr auto match(std::string_view text, IsNodes auto rest) {
-    return (TypeListMatcher<ns>::match(text, rest) || ...);
-  }
-};
-
-template <> struct TypeListMatcher<Alternatives<>> {
-  static constexpr auto match(std::string_view, IsNodes auto) { return false; }
-};
-
-template <IsParseNode n> struct TypeListMatcher<Group<n>> {
-  static constexpr auto match(std::string_view text, IsNodes auto rest) {
-    return TypeListMatcher<n>::match(text, rest);
-  }
-};
-
-template <IsParseNode n> struct TypeListMatcher<Repetition<n, '?'>> {
-  static constexpr auto match(std::string_view text, IsNodes auto rest) {
-    return TypeListMatcher<n>::match(text, rest) ||
-           MatchTypes<decltype(rest)>::match(text);
-  }
-};
-
-template <IsParseNode n> struct TypeListMatcher<Repetition<n, '*'>> {
-  static constexpr auto match(std::string_view text,
-                              IsNodes auto rest) -> bool {
-    return TypeListMatcher<n>::match(
-               text, push_t<Repetition<n, '*'>, decltype(rest)>{}) ||
-           MatchTypes<decltype(rest)>::match(text);
-  }
-};
-
-template <IsParseNode n> struct TypeListMatcher<Repetition<n, '+'>> {
-  static constexpr auto match(std::string_view text, IsNodes auto rest) {
-    return TypeListMatcher<n>::match(
-        text, push_t<Repetition<n, '*'>, decltype(rest)>{});
-  }
-};
-
-template <IsParseNode n> struct Matcher {
+template <IsRegex... ns, IsRegex... rest>
+struct Matcher<Sequence<ns...>, rest...> {
   static constexpr auto match(std::string_view text) {
-    //   return ContinuationMatcher<n>::match(
-    //       text, [](std::string_view text) { return text.empty(); });
-    // }
-    return TypeListMatcher<n>::match(text, Nodes<>{});
+    return Matcher<ns..., rest...>::match(text);
   }
 };
 
-namespace typelist_match_tests {
+template <IsRegex... ns, IsRegex... rest>
+struct Matcher<Alternatives<ns...>, rest...> {
+  static constexpr auto match(std::string_view text) {
+    return (Matcher<ns, rest...>::match(text) || ...);
+  }
+};
 
-using lita = TypeListMatcher<Literal<true, 'a'>>;
-static_assert(lita::match("a", Nodes<>{}));
-static_assert(lita::match("abc", Nodes<>{}) == false);
+template <IsRegex n, IsRegex... rest> struct Matcher<Group<n>, rest...> {
+  static constexpr auto match(std::string_view text) {
+    return Matcher<n, rest...>::match(text);
+  }
+};
 
-using groupa = TypeListMatcher<Group<Literal<true, 'a'>>>;
-static_assert(groupa::match("a", Nodes<>{}));
+template <IsRegex n, IsRegex... rest>
+struct Matcher<Repetition<n, '?'>, rest...> {
+  static constexpr auto match(std::string_view text) {
+    return Matcher<n, rest...>::match(text) || Matcher<rest...>::match(text);
+  }
+};
 
-using seqab = TypeListMatcher<Sequence<Literal<true, 'a'>, Literal<true, 'b'>>>;
-static_assert(seqab::match("ab", Nodes<>{}));
-static_assert(seqab::match("abc", Nodes<>{}) == false);
+template <IsRegex n, IsRegex... rest>
+struct Matcher<Repetition<n, '*'>, rest...> {
+  static constexpr auto match(std::string_view text) -> bool {
+    return Matcher<n, Repetition<n, '*'>, rest...>::match(text) ||
+           Matcher<rest...>::match(text);
+  }
+};
 
-using altab =
-    TypeListMatcher<Alternatives<Literal<true, 'a'>, Literal<true, 'b'>>>;
-static_assert(altab::match("a", Nodes<>{}));
-static_assert(altab::match("b", Nodes<>{}));
-static_assert(altab::match("abc", Nodes<>{}) == false);
-static_assert(altab::match("ba", Nodes<>{}) == false);
-
-using optionalab = TypeListMatcher<
-    Sequence<Literal<true, 'a'>, Repetition<Literal<true, 'b'>, '?'>>>;
-static_assert(optionalab::match("a", Nodes<>{}));
-static_assert(optionalab::match("ab", Nodes<>{}));
-static_assert(optionalab::match("abc", Nodes<>{}) == false);
-static_assert(optionalab::match("ac", Nodes<>{}) == false);
-static_assert(optionalab::match("", Nodes<>{}) == false);
-
-using stara = TypeListMatcher<Repetition<Literal<true, 'a'>, '*'>>;
-static_assert(stara::match("a", Nodes<>{}));
-static_assert(stara::match("aaaaaaaaa", Nodes<>{}));
-static_assert(stara::match("abc", Nodes<>{}) == false);
-static_assert(stara::match("ac", Nodes<>{}) == false);
-static_assert(stara::match("", Nodes<>{}));
-
-} // namespace typelist_match_tests
+template <IsRegex n, IsRegex... rest>
+struct Matcher<Repetition<n, '+'>, rest...> {
+  static constexpr auto match(std::string_view text) {
+    return Matcher<n, Repetition<n, '*'>, rest...>::match(text);
+  }
+};
 
 } // namespace match
 using match::Matcher;
