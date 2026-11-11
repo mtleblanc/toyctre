@@ -496,7 +496,7 @@ template <bool e, char c> struct ContinuationMatcher<Literal<e, c>> {
   static constexpr auto match(std::string_view text, auto &&rest) {
     if (text.empty() || text.front() != c)
       return false;
-    return std::forward<decltype(rest)>(rest)(text.substr(1));
+    return rest(text.substr(1));
   }
 };
 
@@ -504,8 +504,7 @@ template <IsParseNode n, IsParseNode... ns>
 struct ContinuationMatcher<Sequence<n, ns...>> {
   static constexpr auto match(std::string_view text, auto &&rest) {
     auto next = [&](std::string_view nextText) {
-      return ContinuationMatcher<Sequence<ns...>>::match(
-          nextText, std::forward<decltype(rest)>(rest));
+      return ContinuationMatcher<Sequence<ns...>>::match(nextText, rest);
     };
     return ContinuationMatcher<n>::match(text, next);
   }
@@ -513,7 +512,7 @@ struct ContinuationMatcher<Sequence<n, ns...>> {
 
 template <> struct ContinuationMatcher<Sequence<>> {
   static constexpr auto match(std::string_view text, auto &&rest) {
-    return std::forward<decltype(rest)>(rest)(text);
+    return rest(text);
   }
 };
 
@@ -529,32 +528,29 @@ template <> struct ContinuationMatcher<Alternatives<>> {
 
 template <IsParseNode n> struct ContinuationMatcher<Group<n>> {
   static constexpr auto match(std::string_view text, auto &&rest) {
-    return std::forward<decltype(rest)>(rest)(text);
+    return ContinuationMatcher<n>::match(text, rest);
   }
 };
 
 template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '?'>> {
   static constexpr auto match(std::string_view text, auto &&rest) {
-    return ContinuationMatcher<n>::match(text, rest) ||
-           std::forward<decltype(rest)>(rest)(text);
+    return ContinuationMatcher<n>::match(text, rest) || rest(text);
   }
 };
 
 template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '*'>> {
   static constexpr auto match(std::string_view text, auto &&rest) -> bool {
     auto next = [&](std::string_view nextText) {
-      return match(nextText, std::forward<decltype(rest)>(rest));
+      return match(nextText, rest);
     };
-    return ContinuationMatcher<n>::match(text, next) ||
-           std::forward<decltype(rest)>(rest)(text);
+    return ContinuationMatcher<n>::match(text, next) || rest(text);
   }
 };
 
 template <IsParseNode n> struct ContinuationMatcher<Repetition<n, '+'>> {
   static constexpr auto match(std::string_view text, auto &&rest) {
     auto next = [&](std::string_view nextText) {
-      return ContinuationMatcher<Repetition<n, '*'>>::match(
-          nextText, std::forward<decltype(rest)>(rest));
+      return ContinuationMatcher<Repetition<n, '*'>>::match(nextText, rest);
     };
     return ContinuationMatcher<n>::match(text, next);
   }
@@ -577,6 +573,9 @@ static_assert(lita::match("a", full));
 static_assert(lita::match("abc", full) == false);
 static_assert(lita::match("b", partial) == false);
 static_assert(lita::match("", partial) == false);
+
+using groupa = ContinuationMatcher<Group<Literal<true, 'a'>>>;
+static_assert(groupa::match("a", full));
 
 using seqab =
     ContinuationMatcher<Sequence<Literal<true, 'a'>, Literal<true, 'b'>>>;
@@ -644,8 +643,7 @@ struct CompileTimeRegex : detail::IterTilFixed<detail::initial_state_t<regex>> {
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
 
-using namespace detail::parse_tree;
-static_assert(compile_time_regex_t<"a">::result::toString() == "a");
+using test = compile_time_regex_t<"(a)">::result;
 
 } // namespace compile_time
 } // namespace toyctre

@@ -1,6 +1,7 @@
 add_executable(toyctre_tests
   parser_test.cpp
   matcher_test.cpp
+  ct_matcher_test.cpp
 )
 
 target_link_libraries(toyctre_tests PRIVATE core Catch2::Catch2WithMain)
