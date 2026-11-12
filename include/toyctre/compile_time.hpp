@@ -496,8 +496,10 @@ template <IsRegex> struct StarNormal {
 template <IsRegex n> using star_normal_t = typename StarNormal<n>::type;
 
 template <IsRegex n>
-inline constexpr auto is_nullable_v =
-    []() { static_assert(false, "Missing nullable check"); }();
+inline constexpr auto is_nullable_v = []() {
+  static_assert(false, "Missing nullable check");
+  return false;
+}();
 
 template <bool e, char c>
 inline constexpr auto is_nullable_v<Literal<e, c>> = false;
@@ -525,10 +527,14 @@ inline constexpr auto is_nullable_v<Repetition<n, '+'>> = is_nullable_v<n>;
 template <bool e, char c>
 struct StarNormal<Literal<e, c>> : Ty<Literal<e, c>> {};
 
+// needs to be typename here because the fold for IsRegex creates an atomic
+// constraint and breaks subsumption with the nonnullable case below, causing
+// ambiguiuty.  Apparently fixed in C++26
 template <typename... ns>
   requires(is_nullable_v<ns> && ...)
 struct StarNormal<Sequence<ns...>> : Ty<Alternatives<star_normal_t<ns>...>> {};
 
+// needs to be typename, see above
 template <typename... ns>
 struct StarNormal<Sequence<ns...>> : Ty<Sequence<ns...>> {};
 
