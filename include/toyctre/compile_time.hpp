@@ -36,44 +36,45 @@ template <typename V, V v> struct Va {
 };
 
 template <typename, typename> struct Concat;
-template <typename T, template <T...> class LIST, T... l1, T... l2>
-struct Concat<LIST<l1...>, LIST<l2...>> : Ty<LIST<l1..., l2...>> {};
-template <template <typename...> class LIST, typename... l1, typename... l2>
-struct Concat<LIST<l1...>, LIST<l2...>> : Ty<LIST<l1..., l2...>> {};
+template <typename T, template <T...> class LIST, T... as, T... bs>
+struct Concat<LIST<as...>, LIST<bs...>> : Ty<LIST<as..., bs...>> {};
+template <template <typename...> class LIST, typename... Ts, typename... Us>
+struct Concat<LIST<Ts...>, LIST<Us...>> : Ty<LIST<Ts..., Us...>> {};
 
-template <typename l1, typename l2>
-using concat_t = typename Concat<l1, l2>::type;
+template <typename ListA, typename ListB>
+using concat_t = typename Concat<ListA, ListB>::type;
 
 template <typename, typename> struct Push;
-template <typename t, template <typename...> class LIST, typename... l1>
-struct Push<t, LIST<l1...>> : Ty<LIST<t, l1...>> {};
-template <typename t, typename l> using push_t = typename Push<t, l>::type;
+template <typename T, template <typename...> class LIST, typename... Ts>
+struct Push<T, LIST<Ts...>> : Ty<LIST<T, Ts...>> {};
+template <typename T, typename List>
+using push_t = typename Push<T, List>::type;
 
 template <typename, typename> struct ReplaceHead;
-template <typename t, template <typename...> class LIST, typename h,
-          typename... l1>
-struct ReplaceHead<t, LIST<h, l1...>> : Ty<LIST<t, l1...>> {};
-template <typename t, typename l>
-using replace_head_t = typename ReplaceHead<t, l>::type;
+template <typename T, template <typename...> class LIST, typename H,
+          typename... Ts>
+struct ReplaceHead<T, LIST<H, Ts...>> : Ty<LIST<T, Ts...>> {};
+template <typename T, typename List>
+using replace_head_t = typename ReplaceHead<T, List>::type;
 
 template <typename, typename> struct PushBack;
-template <typename t, template <typename...> class LIST, typename... l1>
-struct PushBack<t, LIST<l1...>> : Ty<LIST<l1..., t>> {};
-template <typename t, typename l>
-using push_back_t = typename PushBack<t, l>::type;
+template <typename T, template <typename...> class LIST, typename... Ts>
+struct PushBack<T, LIST<Ts...>> : Ty<LIST<Ts..., T>> {};
+template <typename T, typename List>
+using push_back_t = typename PushBack<T, List>::type;
 
 template <typename> struct Head;
-template <template <typename...> class LIST, typename h, typename... t>
-struct Head<LIST<h, t...>> : Ty<h> {};
-template <typename l> using head_t = typename Head<l>::type;
+template <template <typename...> class LIST, typename H, typename... Ts>
+struct Head<LIST<H, Ts...>> : Ty<H> {};
+template <typename List> using head_t = typename Head<List>::type;
 
 template <typename> struct Tail;
-template <template <typename...> class LIST, typename h, typename... t>
-struct Tail<LIST<h, t...>> : Ty<LIST<t...>> {};
-template <typename l> using tail_t = typename Tail<l>::type;
+template <template <typename...> class LIST, typename H, typename... Ts>
+struct Tail<LIST<H, Ts...>> : Ty<LIST<Ts...>> {};
+template <typename List> using tail_t = typename Tail<List>::type;
 
-template <size_t I, typename T> struct Indexed {};
-template <typename Is, typename... Ts> struct IndexedAll;
+template <size_t, typename> struct Indexed {};
+template <typename, typename...> struct IndexedAll;
 template <size_t... Is, typename... Ts>
 struct IndexedAll<std::index_sequence<Is...>, Ts...> : Indexed<Is, Ts>... {};
 
@@ -82,7 +83,7 @@ template <size_t I, typename... Ts>
 using at_t = decltype(pick<I>(
     IndexedAll<std::index_sequence_for<Ts...>, Ts...>{}))::type;
 
-template <template <typename...> class LIST, typename Is, typename... Ts>
+template <template <typename...> class, typename, typename...>
 struct SelectIndices;
 template <template <typename...> class LIST, size_t... Is, typename... Ts>
 struct SelectIndices<LIST, std::index_sequence<Is...>, Ts...> {
@@ -93,7 +94,8 @@ template <template <typename...> class LIST, size_t... Is> struct Dropper {
   template <typename... Ts>
   LIST<Ts...> static drop(decltype((void *)Is)..., Ty<Ts> *...);
 };
-template <template <typename...> class LIST, typename Is, typename... Ts>
+
+template <template <typename...> class, typename, typename...>
 struct DropIndices;
 template <template <typename...> class LIST, size_t... Is, typename... Ts>
 struct DropIndices<LIST, std::index_sequence<Is...>, Ts...> {
@@ -102,30 +104,37 @@ struct DropIndices<LIST, std::index_sequence<Is...>, Ts...> {
 };
 
 template <typename, typename> struct SplitAt;
-template <template <typename...> class LIST, typename... ls, typename needle>
-struct SplitAt<needle, LIST<ls...>> {
+template <template <typename...> class LIST, typename... Ts, typename Ndl>
+struct SplitAt<Ndl, LIST<Ts...>> {
   static constexpr auto needleIndex = []() {
-    auto marks = std::array<bool, sizeof...(ls)>{{std::same_as<needle, ls>...}};
+    auto marks = std::array<bool, sizeof...(Ts)>{{std::same_as<Ndl, Ts>...}};
     auto index = std::find(marks.begin(), marks.end(), true);
     return std::distance(marks.begin(), index);
   }();
-  static_assert(needleIndex < sizeof...(ls), "Needle not found in stack");
+  static_assert(needleIndex < sizeof...(Ts), "Needle not found in stack");
 
+  template <template <typename...> class OLIST>
   using left =
-      typename SelectIndices<LIST, std::make_index_sequence<needleIndex>,
-                             ls...>::type;
+      typename SelectIndices<OLIST, std::make_index_sequence<needleIndex>,
+                             Ts...>::type;
+
+  template <template <typename...> class OLIST>
   using right =
-      typename DropIndices<LIST, std::make_index_sequence<needleIndex + 1>,
-                           ls...>::type;
+      typename DropIndices<OLIST, std::make_index_sequence<needleIndex + 1>,
+                           Ts...>::type;
 };
 
-namespace test {
-template <typename...> struct List {};
-using stack = List<int, int, int, float, int, float, int, int>;
-using res = SplitAt<float, stack>;
-static_assert(std::is_same_v<res::left, List<int, int, int>>);
-static_assert(std::is_same_v<res::right, List<int, float, int, int>>);
-} // namespace test
+template <template <typename...> class, typename, typename> struct ReverseImpl;
+template <template <typename...> class LIST, typename... Ts, size_t... Is>
+struct ReverseImpl<LIST, LIST<Ts...>, std::index_sequence<Is...>>
+    : Ty<LIST<at_t<sizeof...(Is) - Is - 1, Ts...>...>> {};
+
+template <template <typename...> class, typename> struct Reverse;
+template <template <typename...> class LIST, typename List>
+using reverse_t = typename Reverse<LIST, List>::type;
+template <template <typename...> class LIST, typename... Ts>
+struct Reverse<LIST, LIST<Ts...>>
+    : ReverseImpl<LIST, LIST<Ts...>, std::index_sequence_for<Ts...>> {};
 
 } // namespace helpers
 // }}}
@@ -373,17 +382,14 @@ template <Symbol, char, IsNodes> struct NextNodes {
 template <Symbol a, char c, IsNodes n>
 using next_nodes_t = typename NextNodes<a, c, n>::type;
 
-template <IsRegex acc, IsNodeListItem... ns> struct MergeInto;
-template <IsRegex acc, IsRegex head, IsNodeListItem... rest>
-struct MergeInto<acc, head, rest...> : MergeInto<push_t<head, acc>, rest...> {};
-template <IsRegex acc, IsNodeListItem... rest>
-struct MergeInto<acc, Mark, rest...> : Push<acc, Nodes<rest...>> {};
-
 template <template <typename...> class L, IsNodes n> struct Merge;
 template <template <typename...> class L, IsRegex first, IsRegex second,
           IsNodeListItem... rest>
-struct Merge<L, Nodes<first, second, rest...>>
-    : MergeInto<L<second, first>, rest...> {};
+struct Merge<L, Nodes<first, second, rest...>> {
+  using split = SplitAt<Mark, Nodes<first, second, rest...>>;
+  using merged = reverse_t<L, typename split::template left<L>>;
+  using type = push_t<merged, typename split::template right<Nodes>>;
+};
 template <template <typename...> class L, IsRegex first, IsNodeListItem... rest>
 struct Merge<L, Nodes<first, Mark, rest...>> : Push<first, Nodes<rest...>> {};
 
