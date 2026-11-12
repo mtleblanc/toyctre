@@ -486,12 +486,41 @@ using iterate::IterTilFixed;
 
 namespace match {
 
-template <IsRegex...> struct Matcher;
-template <IsRegex> struct StarNormal;
+template <IsRegex...> struct Matcher {
+  static_assert(false, "Missing matcher case");
+};
+
+template <IsRegex> struct StarNormal {
+  static_assert(false, "Missing StarNormal case");
+};
 template <IsRegex n> using star_normal_t = typename StarNormal<n>::type;
 
 template <IsRegex n>
-inline constexpr auto is_nullable_v = Matcher<n>::match("");
+inline constexpr auto is_nullable_v =
+    []() { static_assert(false, "Missing nullable check"); }();
+
+template <bool e, char c>
+inline constexpr auto is_nullable_v<Literal<e, c>> = false;
+
+template <IsRegex... ns>
+inline constexpr auto is_nullable_v<Sequence<ns...>> =
+    (is_nullable_v<ns> && ...);
+
+template <IsRegex... ns>
+inline constexpr auto is_nullable_v<Alternatives<ns...>> =
+    (is_nullable_v<ns> || ...);
+
+template <IsRegex n>
+inline constexpr auto is_nullable_v<Group<n>> = is_nullable_v<n>;
+
+template <IsRegex n>
+inline constexpr auto is_nullable_v<Repetition<n, '*'>> = true;
+
+template <IsRegex n>
+inline constexpr auto is_nullable_v<Repetition<n, '?'>> = true;
+
+template <IsRegex n>
+inline constexpr auto is_nullable_v<Repetition<n, '+'>> = is_nullable_v<n>;
 
 template <bool e, char c>
 struct StarNormal<Literal<e, c>> : Ty<Literal<e, c>> {};
