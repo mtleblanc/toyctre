@@ -1,11 +1,14 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace toyctre {
 namespace compile_time {
@@ -68,6 +71,61 @@ template <typename> struct Tail;
 template <template <typename...> class LIST, typename h, typename... t>
 struct Tail<LIST<h, t...>> : Ty<LIST<t...>> {};
 template <typename l> using tail_t = typename Tail<l>::type;
+
+template <size_t I, typename T> struct Indexed {};
+template <typename Is, typename... Ts> struct IndexedAll;
+template <size_t... Is, typename... Ts>
+struct IndexedAll<std::index_sequence<Is...>, Ts...> : Indexed<Is, Ts>... {};
+
+template <size_t I, typename T> inline Ty<T> pick(Indexed<I, T>);
+template <size_t I, typename... Ts>
+using at_t = decltype(pick<I>(
+    IndexedAll<std::index_sequence_for<Ts...>, Ts...>{}))::type;
+
+template <template <typename...> class LIST, typename Is, typename... Ts>
+struct SelectIndices;
+template <template <typename...> class LIST, size_t... Is, typename... Ts>
+struct SelectIndices<LIST, std::index_sequence<Is...>, Ts...> {
+  using type = LIST<at_t<Is, Ts...>...>;
+};
+
+template <template <typename...> class LIST, size_t... Is> struct Dropper {
+  template <typename... Ts>
+  LIST<Ts...> static drop(decltype((void *)Is)..., Ty<Ts> *...);
+};
+template <template <typename...> class LIST, typename Is, typename... Ts>
+struct DropIndices;
+template <template <typename...> class LIST, size_t... Is, typename... Ts>
+struct DropIndices<LIST, std::index_sequence<Is...>, Ts...> {
+  using type =
+      decltype(Dropper<LIST, Is...>::drop(std::declval<Ty<Ts> *>()...));
+};
+
+template <typename, typename> struct SplitAt;
+template <template <typename...> class LIST, typename... ls, typename needle>
+struct SplitAt<needle, LIST<ls...>> {
+  static constexpr auto needleIndex = []() {
+    auto marks = std::array<bool, sizeof...(ls)>{{std::same_as<needle, ls>...}};
+    auto index = std::find(marks.begin(), marks.end(), true);
+    return std::distance(marks.begin(), index);
+  }();
+  static_assert(needleIndex < sizeof...(ls), "Needle not found in stack");
+
+  using left =
+      typename SelectIndices<LIST, std::make_index_sequence<needleIndex>,
+                             ls...>::type;
+  using right =
+      typename DropIndices<LIST, std::make_index_sequence<needleIndex + 1>,
+                           ls...>::type;
+};
+
+namespace test {
+template <typename...> struct List {};
+using stack = List<int, int, int, float, int, float, int, int>;
+using res = SplitAt<float, stack>;
+static_assert(std::is_same_v<res::left, List<int, int, int>>);
+static_assert(std::is_same_v<res::right, List<int, float, int, int>>);
+} // namespace test
 
 } // namespace helpers
 // }}}
