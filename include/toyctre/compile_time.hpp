@@ -484,83 +484,87 @@ using iterate::initial_state_t;
 using iterate::IterTilFixed;
 // }}}
 
-struct ConsumeMark {};
-template <> inline constexpr auto parse_tree::isRegex<ConsumeMark> = true;
-
 namespace match {
 
 template <IsRegex...> struct Matcher;
+template <IsRegex> struct StarNormal;
+template <IsRegex n> using star_normal_t = typename StarNormal<n>::type;
+
+template <IsRegex n>
+inline constexpr auto is_nullable_v = Matcher<n>::match("");
+
+template <bool e, char c>
+struct StarNormal<Literal<e, c>> : Ty<Literal<e, c>> {};
+
+template <typename... ns>
+  requires(is_nullable_v<ns> && ...)
+struct StarNormal<Sequence<ns...>> : Ty<Alternatives<star_normal_t<ns>...>> {};
+
+template <typename... ns>
+struct StarNormal<Sequence<ns...>> : Ty<Sequence<ns...>> {};
+
+template <IsRegex... ns>
+struct StarNormal<Alternatives<ns...>>
+    : Ty<Alternatives<star_normal_t<ns>...>> {};
+
+template <IsRegex n> struct StarNormal<Group<n>> : StarNormal<n> {};
+
+template <IsRegex n, char r>
+struct StarNormal<Repetition<n, r>> : StarNormal<n> {};
 
 template <> struct Matcher<> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) {
-    return text.empty() && !expectConsume;
-  }
+  static constexpr auto match(std::string_view text) { return text.empty(); }
 };
 
 template <bool e, char c, IsRegex... rest>
 struct Matcher<Literal<e, c>, rest...> {
-  static constexpr auto match(std::string_view text, bool = false) {
+  static constexpr auto match(std::string_view text) {
     if (text.empty() || text.front() != c)
       return false;
-    return Matcher<rest...>::match(text.substr(1), false);
+    return Matcher<rest...>::match(text.substr(1));
   }
 };
 
 template <IsRegex... ns, IsRegex... rest>
 struct Matcher<Sequence<ns...>, rest...> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) {
-    return Matcher<ns..., rest...>::match(text, expectConsume);
+  static constexpr auto match(std::string_view text) {
+    return Matcher<ns..., rest...>::match(text);
   }
 };
 
 template <IsRegex... ns, IsRegex... rest>
 struct Matcher<Alternatives<ns...>, rest...> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) {
-    return (Matcher<ns, rest...>::match(text, expectConsume) || ...);
+  static constexpr auto match(std::string_view text) {
+    return (Matcher<ns, rest...>::match(text) || ...);
   }
 };
 
 template <IsRegex n, IsRegex... rest> struct Matcher<Group<n>, rest...> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) {
-    return Matcher<n, rest...>::match(text, expectConsume);
+  static constexpr auto match(std::string_view text) {
+    return Matcher<n, rest...>::match(text);
   }
 };
 
 template <IsRegex n, IsRegex... rest>
 struct Matcher<Repetition<n, '?'>, rest...> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) {
-    return Matcher<n, rest...>::match(text, expectConsume) ||
-           Matcher<rest...>::match(text, expectConsume);
+  static constexpr auto match(std::string_view text) {
+    return Matcher<n, rest...>::match(text) || Matcher<rest...>::match(text);
   }
 };
 
 template <IsRegex n, IsRegex... rest>
 struct Matcher<Repetition<n, '*'>, rest...> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) -> bool {
-    return Matcher<n, ConsumeMark, Repetition<n, '*'>, rest...>::match(text,
-                                                                       true) ||
-           Matcher<rest...>::match(text, expectConsume);
-  }
-};
-
-template <IsRegex... rest> struct Matcher<ConsumeMark, rest...> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) -> bool {
-    return !expectConsume && Matcher<rest...>::match(text, expectConsume);
+  static constexpr auto match(std::string_view text) -> bool {
+    return Matcher<star_normal_t<n>, Repetition<n, '*'>, rest...>::match(
+               text) ||
+           Matcher<rest...>::match(text);
   }
 };
 
 template <IsRegex n, IsRegex... rest>
 struct Matcher<Repetition<n, '+'>, rest...> {
-  static constexpr auto match(std::string_view text,
-                              bool expectConsume = false) {
-    return Matcher<n, Repetition<n, '*'>, rest...>::match(text, expectConsume);
+  static constexpr auto match(std::string_view text) {
+    return Matcher<n, Repetition<n, '*'>, rest...>::match(text);
   }
 };
 
