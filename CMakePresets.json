@@ -36,7 +36,7 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_COMPILER": "clang++-20"
+        "CMAKE_CXX_COMPILER": "clang++"
       }
     }
   ],

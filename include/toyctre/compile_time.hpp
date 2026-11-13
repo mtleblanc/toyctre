@@ -394,14 +394,10 @@ inline constexpr auto is_nullable_v<Repetition<R, '+'>> = is_nullable_v<R>;
 template <bool e, char c>
 struct StarNormal<Literal<e, c>> : Id<Literal<e, c>> {};
 
-// needs to be typename here because the fold for typename creates an atomic
-// constraint and breaks subsumption with the nonnullable case below, causing
-// ambiguity.  Fixed in C++26 (P2963)
 template <typename... Rs>
   requires(is_nullable_v<Rs> && ...)
 struct StarNormal<Sequence<Rs...>> : Id<Alternatives<star_normal_t<Rs>...>> {};
 
-// needs to be typename, see above
 template <typename... Rs>
 struct StarNormal<Sequence<Rs...>> : Id<Sequence<Rs...>> {};
 
@@ -415,11 +411,13 @@ template <typename R, char r>
 struct StarNormal<Repetition<R, r>> : StarNormal<R> {};
 
 template <> struct Matcher<> {
-  static constexpr auto match(std::string_view text) { return text.empty(); }
+  static constexpr auto match(std::string_view text) -> bool {
+    return text.empty();
+  }
 };
 
 template <bool e, char c, typename... Rs> struct Matcher<Literal<e, c>, Rs...> {
-  static constexpr auto match(std::string_view text) {
+  static constexpr auto match(std::string_view text) -> bool {
     if (text.empty() || text.front() != c)
       return false;
     return Matcher<Rs...>::match(text.substr(1));
@@ -428,34 +426,33 @@ template <bool e, char c, typename... Rs> struct Matcher<Literal<e, c>, Rs...> {
 
 template <typename... Ras, typename... Rbs>
 struct Matcher<Sequence<Ras...>, Rbs...> {
-  static constexpr auto match(std::string_view text) {
+  static constexpr auto match(std::string_view text) -> bool {
     return Matcher<Ras..., Rbs...>::match(text);
   }
 };
 
 template <typename... Ras, typename... Rbs>
 struct Matcher<Alternatives<Ras...>, Rbs...> {
-  static constexpr auto match(std::string_view text) {
+  static constexpr auto match(std::string_view text) -> bool {
     return (Matcher<Ras, Rbs...>::match(text) || ...);
   }
 };
 
 template <typename R, typename... Rs> struct Matcher<Group<R>, Rs...> {
-  static constexpr auto match(std::string_view text) {
+  static constexpr auto match(std::string_view text) -> bool {
     return Matcher<R, Rs...>::match(text);
   }
 };
 
 template <typename R, typename... Rs>
 struct Matcher<Repetition<R, '?'>, Rs...> {
-  static constexpr auto match(std::string_view text) {
+  static constexpr auto match(std::string_view text) -> bool {
     return Matcher<R, Rs...>::match(text) || Matcher<Rs...>::match(text);
   }
 };
 
 template <typename R, typename... Rs>
 struct Matcher<Repetition<R, '*'>, Rs...> {
-  // need to specify return type due to recursion
   static constexpr auto match(std::string_view text) -> bool {
     return Matcher<star_normal_t<R>, Repetition<R, '*'>, Rs...>::match(text) ||
            Matcher<Rs...>::match(text);
@@ -464,7 +461,7 @@ struct Matcher<Repetition<R, '*'>, Rs...> {
 
 template <typename R, typename... Rs>
 struct Matcher<Repetition<R, '+'>, Rs...> {
-  static constexpr auto match(std::string_view text) {
+  static constexpr auto match(std::string_view text) -> bool {
     return Matcher<R, Repetition<R, '*'>, Rs...>::match(text);
   }
 };
