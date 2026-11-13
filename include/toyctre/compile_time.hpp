@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <string>
@@ -27,7 +26,7 @@ template <typename T, typename F> struct if_<false, T, F> {
 template <bool b, typename t, typename f>
 using if_t = typename if_<b, t, f>::type;
 
-template <typename T> struct Ty {
+template <typename T> struct Id {
   using type = T;
 };
 
@@ -37,40 +36,40 @@ template <typename V, V v> struct Va {
 
 template <typename, typename> struct Concat;
 template <typename T, template <T...> class LIST, T... as, T... bs>
-struct Concat<LIST<as...>, LIST<bs...>> : Ty<LIST<as..., bs...>> {};
+struct Concat<LIST<as...>, LIST<bs...>> : Id<LIST<as..., bs...>> {};
 template <template <typename...> class LIST, typename... Ts, typename... Us>
-struct Concat<LIST<Ts...>, LIST<Us...>> : Ty<LIST<Ts..., Us...>> {};
+struct Concat<LIST<Ts...>, LIST<Us...>> : Id<LIST<Ts..., Us...>> {};
 
 template <typename ListA, typename ListB>
 using concat_t = typename Concat<ListA, ListB>::type;
 
 template <typename, typename> struct Push;
 template <typename T, template <typename...> class LIST, typename... Ts>
-struct Push<T, LIST<Ts...>> : Ty<LIST<T, Ts...>> {};
+struct Push<T, LIST<Ts...>> : Id<LIST<T, Ts...>> {};
 template <typename T, typename List>
 using push_t = typename Push<T, List>::type;
 
 template <typename, typename> struct ReplaceHead;
 template <typename T, template <typename...> class LIST, typename H,
           typename... Ts>
-struct ReplaceHead<T, LIST<H, Ts...>> : Ty<LIST<T, Ts...>> {};
+struct ReplaceHead<T, LIST<H, Ts...>> : Id<LIST<T, Ts...>> {};
 template <typename T, typename List>
 using replace_head_t = typename ReplaceHead<T, List>::type;
 
 template <typename, typename> struct PushBack;
 template <typename T, template <typename...> class LIST, typename... Ts>
-struct PushBack<T, LIST<Ts...>> : Ty<LIST<Ts..., T>> {};
+struct PushBack<T, LIST<Ts...>> : Id<LIST<Ts..., T>> {};
 template <typename T, typename List>
 using push_back_t = typename PushBack<T, List>::type;
 
 template <typename> struct Head;
 template <template <typename...> class LIST, typename H, typename... Ts>
-struct Head<LIST<H, Ts...>> : Ty<H> {};
+struct Head<LIST<H, Ts...>> : Id<H> {};
 template <typename List> using head_t = typename Head<List>::type;
 
 template <typename> struct Tail;
 template <template <typename...> class LIST, typename H, typename... Ts>
-struct Tail<LIST<H, Ts...>> : Ty<LIST<Ts...>> {};
+struct Tail<LIST<H, Ts...>> : Id<LIST<Ts...>> {};
 template <typename List> using tail_t = typename Tail<List>::type;
 
 template <size_t, typename> struct Indexed {};
@@ -78,63 +77,10 @@ template <typename, typename...> struct IndexedAll;
 template <size_t... Is, typename... Ts>
 struct IndexedAll<std::index_sequence<Is...>, Ts...> : Indexed<Is, Ts>... {};
 
-template <size_t I, typename T> inline Ty<T> pick(Indexed<I, T>);
+template <size_t I, typename T> inline Id<T> pick(Indexed<I, T>);
 template <size_t I, typename... Ts>
 using at_t = decltype(pick<I>(
     IndexedAll<std::index_sequence_for<Ts...>, Ts...>{}))::type;
-
-template <template <typename...> class, typename, typename...>
-struct SelectIndices;
-template <template <typename...> class LIST, size_t... Is, typename... Ts>
-struct SelectIndices<LIST, std::index_sequence<Is...>, Ts...> {
-  using type = LIST<at_t<Is, Ts...>...>;
-};
-
-template <template <typename...> class LIST, size_t... Is> struct Dropper {
-  template <typename... Ts>
-  LIST<Ts...> static drop(decltype((void *)Is)..., Ty<Ts> *...);
-};
-
-template <template <typename...> class, typename, typename...>
-struct DropIndices;
-template <template <typename...> class LIST, size_t... Is, typename... Ts>
-struct DropIndices<LIST, std::index_sequence<Is...>, Ts...> {
-  using type =
-      decltype(Dropper<LIST, Is...>::drop(std::declval<Ty<Ts> *>()...));
-};
-
-template <typename, typename> struct SplitAt;
-template <template <typename...> class LIST, typename... Ts, typename Ndl>
-struct SplitAt<Ndl, LIST<Ts...>> {
-  static constexpr auto needleIndex = []() {
-    auto marks = std::array<bool, sizeof...(Ts)>{{std::same_as<Ndl, Ts>...}};
-    auto index = std::find(marks.begin(), marks.end(), true);
-    return std::distance(marks.begin(), index);
-  }();
-  static_assert(needleIndex < sizeof...(Ts), "Needle not found in stack");
-
-  template <template <typename...> class OLIST>
-  using left =
-      typename SelectIndices<OLIST, std::make_index_sequence<needleIndex>,
-                             Ts...>::type;
-
-  template <template <typename...> class OLIST>
-  using right =
-      typename DropIndices<OLIST, std::make_index_sequence<needleIndex + 1>,
-                           Ts...>::type;
-};
-
-template <template <typename...> class, typename, typename> struct ReverseImpl;
-template <template <typename...> class LIST, typename... Ts, size_t... Is>
-struct ReverseImpl<LIST, LIST<Ts...>, std::index_sequence<Is...>>
-    : Ty<LIST<at_t<sizeof...(Is) - Is - 1, Ts...>...>> {};
-
-template <template <typename...> class, typename> struct Reverse;
-template <template <typename...> class LIST, typename List>
-using reverse_t = typename Reverse<LIST, List>::type;
-template <template <typename...> class LIST, typename... Ts>
-struct Reverse<LIST, LIST<Ts...>>
-    : ReverseImpl<LIST, LIST<Ts...>, std::index_sequence_for<Ts...>> {};
 
 } // namespace helpers
 // }}}
@@ -356,17 +302,17 @@ using namespace state;
 namespace consume {
 
 template <Symbol t, IsProgress p, IsSentinels s, IsNodes n>
-struct ConsumeTerminal : Ty<ParseFailure> {};
+struct ConsumeTerminal : Id<ParseFailure> {};
 
 // Can't have this firing on EOT as advance would be an error.  The check is
 // unnecessary since the IsAtEot specialization is more specific, but it is
 // included for clarity
 template <Symbol t, IsProgress p, IsSentinels s, IsNodes n>
   requires(t != Symbol::T_Eot && t == lex_v<p>)
-struct ConsumeTerminal<t, p, s, n> : Ty<State<advance_t<p>, s, n>> {};
+struct ConsumeTerminal<t, p, s, n> : Id<State<advance_t<p>, s, n>> {};
 
 template <IsAtEot p, IsSentinels s, IsNodes n>
-struct ConsumeTerminal<Symbol::T_Eot, p, s, n> : Ty<State<p, s, n>> {};
+struct ConsumeTerminal<Symbol::T_Eot, p, s, n> : Id<State<p, s, n>> {};
 
 } // namespace consume
 using consume::ConsumeTerminal;
@@ -383,13 +329,29 @@ template <Symbol a, char c, IsNodes n>
 using next_nodes_t = typename NextNodes<a, c, n>::type;
 
 template <template <typename...> class L, IsNodes n> struct Merge;
-template <template <typename...> class L, IsRegex first, IsRegex second,
-          IsNodeListItem... rest>
-struct Merge<L, Nodes<first, second, rest...>> {
-  using split = SplitAt<Mark, Nodes<first, second, rest...>>;
-  using merged = reverse_t<L, typename split::template left<L>>;
-  using type = push_t<merged, typename split::template right<Nodes>>;
+template <template <typename...> class L, IsNodeListItem... Ts>
+struct Merge<L, Nodes<Ts...>> {
+  static constexpr auto mark_index = []() {
+    auto marks = std::array<bool, sizeof...(Ts)>{{std::same_as<Mark, Ts>...}};
+    auto index = std::find(marks.begin(), marks.end(), true);
+    return static_cast<size_t>(std::distance(marks.begin(), index));
+  }();
+
+  static_assert(mark_index < sizeof...(Ts), "Mark not found");
+
+  template <size_t... Is>
+  static Id<L<at_t<mark_index - Is - 1, Ts...>...>>
+      merge_f(std::index_sequence<Is...>);
+  using merged =
+      decltype(merge_f(std::make_index_sequence<mark_index>{}))::type;
+
+  template <size_t... Is>
+  static Id<Nodes<merged, at_t<mark_index + Is + 1, Ts...>...>>
+      next_f(std::index_sequence<Is...>);
+  using type = decltype(next_f(
+      std::make_index_sequence<sizeof...(Ts) - mark_index - 1>{}))::type;
 };
+
 template <template <typename...> class L, IsRegex first, IsNodeListItem... rest>
 struct Merge<L, Nodes<first, Mark, rest...>> : Push<first, Nodes<rest...>> {};
 
@@ -410,9 +372,9 @@ template <char c, IsNodes n>
 struct NextNodes<A_Rep, c, n> : ReplaceHead<Repetition<head_t<n>, c>, n> {};
 
 template <Symbol a, IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction : Ty<State<p, s, next_nodes_t<a, current_char_v<p>, n>>> {};
+struct DoAction : Id<State<p, s, next_nodes_t<a, current_char_v<p>, n>>> {};
 template <IsProgress p, IsSentinels s, IsNodes n>
-struct DoAction<A_Reject, p, s, n> : Ty<ParseFailure> {};
+struct DoAction<A_Reject, p, s, n> : Id<ParseFailure> {};
 
 } // namespace action
 using action::DoAction;
@@ -429,24 +391,24 @@ template <Symbol nt, Symbol p> struct Produce {
 
 template <size_t> struct Prod;
 
-template <> struct Prod<1> : Ty<Sen<Alt, T_Eot>> {};                     // S
-template <> struct Prod<2> : Ty<Sen<A_Mark, Cat, Cats, A_Alts>> {};      // Alt
-template <> struct Prod<3> : Ty<Sen<T_Bar, Cat, Cats>> {};               // Cats
-template <> struct Prod<4> : Ty<Sen<>> {};                               // Cats
-template <> struct Prod<5> : Ty<Sen<A_Mark, Unt, Amt, Reps, A_Cats>> {}; // Cat
-template <> struct Prod<6> : Ty<Sen<Unt, Amt, Reps>> {};                 // Reps
-template <> struct Prod<7> : Ty<Sen<>> {};                               // Reps
-template <> struct Prod<8> : Ty<Sen<A_Lit, T_Reg>> {};                   // Unt
-template <> struct Prod<9> : Ty<Sen<T_Slash, A_Esc, Lit>> {};            // Unt
-template <> struct Prod<10> : Ty<Sen<T_Reg>> {};                         // Lit
-template <> struct Prod<11> : Ty<Sen<T_Rep>> {};                         // Lit
-template <> struct Prod<12> : Ty<Sen<T_LPar>> {};                        // Lit
-template <> struct Prod<13> : Ty<Sen<T_RPar>> {};                        // Lit
-template <> struct Prod<14> : Ty<Sen<T_Slash>> {};                       // Lit
-template <> struct Prod<15> : Ty<Sen<T_Bar>> {};                         // Lit
-template <> struct Prod<16> : Ty<Sen<T_LPar, Alt, A_Group, T_RPar>> {};  // Unt
-template <> struct Prod<17> : Ty<Sen<A_Rep, T_Rep>> {};                  // Amt
-template <> struct Prod<18> : Ty<Sen<>> {};                              // Amt
+template <> struct Prod<1> : Id<Sen<Alt, T_Eot>> {};                     // S
+template <> struct Prod<2> : Id<Sen<A_Mark, Cat, Cats, A_Alts>> {};      // Alt
+template <> struct Prod<3> : Id<Sen<T_Bar, Cat, Cats>> {};               // Cats
+template <> struct Prod<4> : Id<Sen<>> {};                               // Cats
+template <> struct Prod<5> : Id<Sen<A_Mark, Unt, Amt, Reps, A_Cats>> {}; // Cat
+template <> struct Prod<6> : Id<Sen<Unt, Amt, Reps>> {};                 // Reps
+template <> struct Prod<7> : Id<Sen<>> {};                               // Reps
+template <> struct Prod<8> : Id<Sen<A_Lit, T_Reg>> {};                   // Unt
+template <> struct Prod<9> : Id<Sen<T_Slash, A_Esc, Lit>> {};            // Unt
+template <> struct Prod<10> : Id<Sen<T_Reg>> {};                         // Lit
+template <> struct Prod<11> : Id<Sen<T_Rep>> {};                         // Lit
+template <> struct Prod<12> : Id<Sen<T_LPar>> {};                        // Lit
+template <> struct Prod<13> : Id<Sen<T_RPar>> {};                        // Lit
+template <> struct Prod<14> : Id<Sen<T_Slash>> {};                       // Lit
+template <> struct Prod<15> : Id<Sen<T_Bar>> {};                         // Lit
+template <> struct Prod<16> : Id<Sen<T_LPar, Alt, A_Group, T_RPar>> {};  // Unt
+template <> struct Prod<17> : Id<Sen<A_Rep, T_Rep>> {};                  // Amt
+template <> struct Prod<18> : Id<Sen<>> {};                              // Amt
 template <> struct Produce<S, T_LPar> : Prod<1> {};
 template <> struct Produce<S, T_Slash> : Prod<1> {};
 template <> struct Produce<S, T_Reg> : Prod<1> {};
@@ -486,7 +448,7 @@ template <Symbol nt, Symbol p>
 using produce_t = typename produce::Produce<nt, p>::type;
 
 template <Symbol nt, IsProgress p, IsSentinels s, IsNodes n>
-struct Predict : Ty<State<p, concat_t<produce_t<nt, lex_v<p>>, s>, n>> {};
+struct Predict : Id<State<p, concat_t<produce_t<nt, lex_v<p>>, s>, n>> {};
 
 } // namespace produce
 using produce::Predict;
@@ -506,10 +468,10 @@ template <IsResultOrState> struct Step {
 };
 
 template <IsRegex node, IsAtEot p>
-struct Step<State<p, Sen<>, Nodes<node>>> : Ty<ParseSuccess<node>> {};
+struct Step<State<p, Sen<>, Nodes<node>>> : Id<ParseSuccess<node>> {};
 
 template <IsRegex node, IsProgress p>
-struct Step<State<p, Sen<>, Nodes<node>>> : Ty<ParseFailure> {};
+struct Step<State<p, Sen<>, Nodes<node>>> : Id<ParseFailure> {};
 
 template <IsProgress r, Symbol t, Symbol... ss, IsNodes n>
   requires(isAction(t))
@@ -523,12 +485,12 @@ struct Step<State<r, Sen<t, ss...>, n>> : ConsumeTerminal<t, r, Sen<ss...>, n> {
 template <IsProgress r, Symbol t, Symbol... ss, IsNodes n>
 struct Step<State<r, Sen<t, ss...>, n>> : Predict<t, r, Sen<ss...>, n> {};
 
-template <IsResult t> struct Step<t> : Ty<t> {};
+template <IsResult t> struct Step<t> : Id<t> {};
 template <IsResultOrState t> using step_t = typename Step<t>::type;
 
 template <RegexString regex>
 struct InitialState
-    : Ty<State<Progress<regex.data, 0>, Sen<Symbol::S>, Nodes<>>> {};
+    : Id<State<Progress<regex.data, 0>, Sen<Symbol::S>, Nodes<>>> {};
 template <RegexString regex>
 using initial_state_t = typename InitialState<regex>::type;
 
@@ -540,7 +502,7 @@ template <IsResultOrState s, size_t N>
 struct Iter : Iter<iter_t<s, N - 1>, N - 1> {};
 
 template <IsResultOrState s, size_t N = 0>
-struct IterTilFixed : if_<std::is_same_v<s, iter_t<s, N>>, Ty<s>,
+struct IterTilFixed : if_<std::is_same_v<s, iter_t<s, N>>, Id<s>,
                           IterTilFixed<iter_t<s, N>, N + 1>> {};
 } // namespace iterate
 
@@ -589,22 +551,22 @@ template <IsRegex n>
 inline constexpr auto is_nullable_v<Repetition<n, '+'>> = is_nullable_v<n>;
 
 template <bool e, char c>
-struct StarNormal<Literal<e, c>> : Ty<Literal<e, c>> {};
+struct StarNormal<Literal<e, c>> : Id<Literal<e, c>> {};
 
 // needs to be typename here because the fold for IsRegex creates an atomic
 // constraint and breaks subsumption with the nonnullable case below, causing
 // ambiguiuty.  Apparently fixed in C++26
 template <typename... ns>
   requires(is_nullable_v<ns> && ...)
-struct StarNormal<Sequence<ns...>> : Ty<Alternatives<star_normal_t<ns>...>> {};
+struct StarNormal<Sequence<ns...>> : Id<Alternatives<star_normal_t<ns>...>> {};
 
 // needs to be typename, see above
 template <typename... ns>
-struct StarNormal<Sequence<ns...>> : Ty<Sequence<ns...>> {};
+struct StarNormal<Sequence<ns...>> : Id<Sequence<ns...>> {};
 
 template <IsRegex... ns>
 struct StarNormal<Alternatives<ns...>>
-    : Ty<Alternatives<star_normal_t<ns>...>> {};
+    : Id<Alternatives<star_normal_t<ns>...>> {};
 
 template <IsRegex n> struct StarNormal<Group<n>> : StarNormal<n> {};
 
