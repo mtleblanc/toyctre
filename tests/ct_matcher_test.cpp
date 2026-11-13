@@ -37,7 +37,8 @@ using compile_time::Matcher;
 using compile_time::ParseFailure;
 using compile_time::RegexString;
 
-template <RegexString re> using tree_t = typename compile_time_regex_t<re>::result;
+template <RegexString re>
+using tree_t = typename compile_time_regex_t<re>::result;
 
 template <RegexString re> constexpr std::string_view patternOf() {
   // RegexString stores the trailing NUL.
@@ -309,7 +310,8 @@ TEST_CASE("CT: Alternation has lowest precedence", "[ct_matcher][alt]") {
 // Escapes
 // ---------------------------------------------------------------------------
 
-TEST_CASE("CT: Escaped metacharacters match literally", "[ct_matcher][escape]") {
+TEST_CASE("CT: Escaped metacharacters match literally",
+          "[ct_matcher][escape]") {
   checkMatches<R"re(\*)re">({"*"}, {"", "a", "**"});
   checkMatches<R"re(\+)re">({"+"}, {"", "++"});
   checkMatches<R"re(\?)re">({"?"}, {""});
