@@ -289,67 +289,8 @@ using action::DoAction;
 namespace produce {
 using enum Symbol;
 
-template <Symbol, Symbol> struct Produce {
-  using type = Sen<A_Reject>;
-};
-
-template <size_t> struct Prod;
-
-template <> struct Prod<1> : Id<Sen<Alt, T_Eot>> {};                     // S
-template <> struct Prod<2> : Id<Sen<A_Mark, Cat, Cats, A_Alts>> {};      // Alt
-template <> struct Prod<3> : Id<Sen<T_Bar, Cat, Cats>> {};               // Cats
-template <> struct Prod<4> : Id<Sen<>> {};                               // Cats
-template <> struct Prod<5> : Id<Sen<A_Mark, Unt, Amt, Reps, A_Cats>> {}; // Cat
-template <> struct Prod<6> : Id<Sen<Unt, Amt, Reps>> {};                 // Reps
-template <> struct Prod<7> : Id<Sen<>> {};                               // Reps
-template <> struct Prod<8> : Id<Sen<A_Lit, T_Reg>> {};                   // Unt
-template <> struct Prod<9> : Id<Sen<T_Esc, A_Esc, Lit>> {};              // Unt
-template <> struct Prod<10> : Id<Sen<T_Reg>> {};                         // Lit
-template <> struct Prod<11> : Id<Sen<T_Rep>> {};                         // Lit
-template <> struct Prod<12> : Id<Sen<T_LPar>> {};                        // Lit
-template <> struct Prod<13> : Id<Sen<T_RPar>> {};                        // Lit
-template <> struct Prod<14> : Id<Sen<T_Esc>> {};                         // Lit
-template <> struct Prod<15> : Id<Sen<T_Bar>> {};                         // Lit
-template <> struct Prod<16> : Id<Sen<T_LPar, Alt, A_Group, T_RPar>> {};  // Unt
-template <> struct Prod<17> : Id<Sen<A_Rep, T_Rep>> {};                  // Amt
-template <> struct Prod<18> : Id<Sen<>> {};                              // Amt
-template <> struct Produce<Start, T_LPar> : Prod<1> {};
-template <> struct Produce<Start, T_Esc> : Prod<1> {};
-template <> struct Produce<Start, T_Reg> : Prod<1> {};
-template <> struct Produce<Alt, T_LPar> : Prod<2> {};
-template <> struct Produce<Alt, T_Esc> : Prod<2> {};
-template <> struct Produce<Alt, T_Reg> : Prod<2> {};
-template <> struct Produce<Cat, T_LPar> : Prod<5> {};
-template <> struct Produce<Cat, T_Esc> : Prod<5> {};
-template <> struct Produce<Cat, T_Reg> : Prod<5> {};
-template <> struct Produce<Cats, T_RPar> : Prod<4> {};
-template <> struct Produce<Cats, T_Bar> : Prod<3> {};
-template <> struct Produce<Cats, T_Eot> : Prod<4> {};
-template <> struct Produce<Reps, T_LPar> : Prod<6> {};
-template <> struct Produce<Reps, T_RPar> : Prod<7> {};
-template <> struct Produce<Reps, T_Esc> : Prod<6> {};
-template <> struct Produce<Reps, T_Bar> : Prod<7> {};
-template <> struct Produce<Reps, T_Reg> : Prod<6> {};
-template <> struct Produce<Reps, T_Eot> : Prod<7> {};
-template <> struct Produce<Unt, T_LPar> : Prod<16> {};
-template <> struct Produce<Unt, T_Esc> : Prod<9> {};
-template <> struct Produce<Unt, T_Reg> : Prod<8> {};
-template <> struct Produce<Amt, T_Rep> : Prod<17> {};
-template <> struct Produce<Amt, T_LPar> : Prod<18> {};
-template <> struct Produce<Amt, T_RPar> : Prod<18> {};
-template <> struct Produce<Amt, T_Esc> : Prod<18> {};
-template <> struct Produce<Amt, T_Bar> : Prod<18> {};
-template <> struct Produce<Amt, T_Reg> : Prod<18> {};
-template <> struct Produce<Amt, T_Eot> : Prod<18> {};
-template <> struct Produce<Lit, T_Rep> : Prod<11> {};
-template <> struct Produce<Lit, T_LPar> : Prod<12> {};
-template <> struct Produce<Lit, T_RPar> : Prod<13> {};
-template <> struct Produce<Lit, T_Esc> : Prod<14> {};
-template <> struct Produce<Lit, T_Bar> : Prod<15> {};
-template <> struct Produce<Lit, T_Reg> : Prod<10> {};
-
 template <Symbol nt, Symbol la>
-using produce_t = typename produce::Produce<nt, la>::type;
+using produce_t = typename grammar::predict_t<Sen, nt, la>;
 
 template <Symbol nt, typename P, typename S, typename N>
 struct Predict : Id<State<P, concat_t<produce_t<nt, lex_v<P>>, S>, N>> {};

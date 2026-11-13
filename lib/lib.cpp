@@ -1,19 +1,23 @@
 #include "toyctre/lib.hpp"
 #include <algorithm>
+#include <array>
 #include <bitset>
 #include <cassert>
+#include <cstddef>
 #include <initializer_list>
-#include <print>
+#include <iterator>
 #include <ranges>
+#include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
 
-#include "toyctre/compile_time.hpp"
-
 namespace toyctre {
 namespace detail {
+using std::size_t;
+
 struct Production {
   Symbol head{};
   std::vector<Symbol> body;
