@@ -15,11 +15,11 @@ namespace compile_time {
 namespace helpers {
 using std::size_t;
 
-template <bool, typename, typename> struct If;
-template <typename T, typename F> struct If<true, T, F> {
+template <bool, typename, typename> struct LazyIf;
+template <typename T, typename F> struct LazyIf<true, T, F> {
   using type = typename T::type;
 };
-template <typename T, typename F> struct If<false, T, F> {
+template <typename T, typename F> struct LazyIf<false, T, F> {
   using type = typename F::type;
 };
 
@@ -69,7 +69,7 @@ using helpers::at_t;
 using helpers::concat_t;
 using helpers::head_t;
 using helpers::Id;
-using helpers::If;
+using helpers::LazyIf;
 using helpers::Push;
 using helpers::ReplaceHead;
 using std::size_t;
@@ -144,12 +144,12 @@ template <IsRegex R> struct Group {
     return std::string{"("} + R::toString() + ')';
   }
 };
-template <IsRegex R> inline constexpr auto is_regex_v<Group<R>> = true;
+template <typename R> inline constexpr auto is_regex_v<Group<R>> = true;
 
 template <IsRegex... Ns> struct Sequence {
   static constexpr std::string toString() { return (Ns::toString() + ...); }
 };
-template <IsRegex... Ns>
+template <typename... Ns>
 inline constexpr auto is_regex_v<Sequence<Ns...>> = true;
 
 template <IsRegex... Ns> struct Alternatives {
@@ -158,13 +158,13 @@ template <IsRegex... Ns> struct Alternatives {
     return res.substr(0, res.size() - 1);
   }
 };
-template <IsRegex... Ns>
+template <typename... Ns>
 inline constexpr auto is_regex_v<Alternatives<Ns...>> = true;
 
 template <IsRegex R, char r> struct Repetition {
   static constexpr std::string toString() { return R::toString() + r; }
 };
-template <IsRegex R, char r>
+template <typename R, char r>
 inline constexpr auto is_regex_v<Repetition<R, r>> = true;
 
 template <bool e, char c> struct Literal {
@@ -223,19 +223,16 @@ template <typename S>
 concept IsSentinels = is_sentinels_v<S>;
 
 struct Mark {};
-template <typename T>
-concept IsNodeListItem = IsRegex<T> || std::same_as<T, Mark>;
 
-template <IsNodeListItem...> struct Nodes {};
+template <typename...> struct Nodes {};
 template <typename N> inline constexpr auto is_nodes_v = false;
-template <IsNodeListItem... Ns>
-inline constexpr auto is_nodes_v<Nodes<Ns...>> = true;
+template <typename... Ns> inline constexpr auto is_nodes_v<Nodes<Ns...>> = true;
 template <typename N>
 concept IsNodes = is_nodes_v<N>;
 
 template <IsProgress, IsSentinels, IsNodes> struct State;
 template <typename> inline constexpr auto is_state_v = false;
-template <IsProgress P, IsSentinels S, IsNodes N>
+template <typename P, typename S, typename N>
 inline constexpr auto is_state_v<State<P, S, N>> = true;
 template <typename S>
 concept IsState = is_state_v<S>;
@@ -255,12 +252,10 @@ template <typename T>
 concept IsResultOrState = IsResult<T> || IsState<T>;
 
 } // namespace state
-using state::IsNodeListItem;
 using state::IsNodes;
 using state::IsResult;
 using state::IsResultOrState;
 using state::IsSentinels;
-using state::IsState;
 using state::Mark;
 using state::Nodes;
 using state::ParseFailure;
@@ -270,16 +265,16 @@ using state::State;
 
 namespace consume {
 
-template <Symbol t, IsProgress P, IsSentinels S, IsNodes N>
+template <Symbol t, typename P, typename S, typename N>
 struct ConsumeTerminal : Id<ParseFailure> {};
 
 // EOT check is unnecessary since the IsEot specialization is more specific, but
 // it is included for clarity
-template <Symbol t, IsProgress P, IsSentinels S, IsNodes N>
+template <Symbol t, typename P, typename S, typename N>
   requires(t != Symbol::T_Eot && t == lex_v<P>)
 struct ConsumeTerminal<t, P, S, N> : Id<State<typename P::next, S, N>> {};
 
-template <IsEot P, IsSentinels S, IsNodes N>
+template <IsEot P, typename S, typename N>
 struct ConsumeTerminal<Symbol::T_Eot, P, S, N> : Id<State<P, S, N>> {};
 
 } // namespace consume
@@ -288,14 +283,14 @@ using consume::ConsumeTerminal;
 namespace action {
 using enum Symbol;
 
-template <Symbol, char, IsNodes> struct NextNodes {
+template <Symbol, char, typename> struct NextNodes {
   static_assert(false, "Unrecognized action");
 };
-template <Symbol a, char c, IsNodes N>
+template <Symbol a, char c, typename N>
 using next_nodes_t = typename NextNodes<a, c, N>::type;
 
-template <template <typename...> class, IsNodes> struct Merge;
-template <template <typename...> class List, IsNodeListItem... Ts>
+template <template <typename...> class, typename> struct Merge;
+template <template <typename...> class List, typename... Ts>
 struct Merge<List, Nodes<Ts...>> {
   static constexpr auto mark_index = []() {
     auto marks = std::array<bool, sizeof...(Ts)>{{std::same_as<Mark, Ts>...}};
@@ -318,28 +313,28 @@ struct Merge<List, Nodes<Ts...>> {
       std::make_index_sequence<sizeof...(Ts) - mark_index - 1>{}))::type;
 };
 
-template <template <typename...> class List, IsRegex R, IsNodeListItem... Rs>
+template <template <typename...> class List, typename R, typename... Rs>
 struct Merge<List, Nodes<R, Mark, Rs...>> : Push<R, Nodes<Rs...>> {};
 
-template <char c, IsNodes N> struct NextNodes<A_Mark, c, N> : Push<Mark, N> {};
+template <char c, typename N> struct NextNodes<A_Mark, c, N> : Push<Mark, N> {};
 
-template <char c, IsNodes N>
+template <char c, typename N>
 struct NextNodes<A_Alts, c, N> : Merge<Alternatives, N> {};
-template <char c, IsNodes N>
+template <char c, typename N>
 struct NextNodes<A_Cats, c, N> : Merge<Sequence, N> {};
-template <char c, IsNodes N>
+template <char c, typename N>
 struct NextNodes<A_Group, c, N> : ReplaceHead<Group<head_t<N>>, N> {};
 
-template <char c, IsNodes N>
+template <char c, typename N>
 struct NextNodes<A_Lit, c, N> : Push<Literal<false, c>, N> {};
-template <char c, IsNodes N>
+template <char c, typename N>
 struct NextNodes<A_Esc, c, N> : Push<Literal<true, c>, N> {};
-template <char c, IsNodes N>
+template <char c, typename N>
 struct NextNodes<A_Rep, c, N> : ReplaceHead<Repetition<head_t<N>, c>, N> {};
 
-template <Symbol a, IsProgress P, IsSentinels S, IsNodes N>
+template <Symbol a, typename P, typename S, typename N>
 struct DoAction : Id<State<P, S, next_nodes_t<a, P::current_char, N>>> {};
-template <IsProgress P, IsSentinels S, IsNodes N>
+template <typename P, typename S, typename N>
 struct DoAction<A_Reject, P, S, N> : Id<ParseFailure> {};
 
 } // namespace action
@@ -410,7 +405,7 @@ template <> struct Produce<Lit, T_Reg> : Prod<10> {};
 template <Symbol nt, Symbol la>
 using produce_t = typename produce::Produce<nt, la>::type;
 
-template <Symbol nt, IsProgress P, IsSentinels S, IsNodes N>
+template <Symbol nt, typename P, typename S, typename N>
 struct Predict : Id<State<P, concat_t<produce_t<nt, lex_v<P>>, S>, N>> {};
 
 } // namespace produce
@@ -427,22 +422,22 @@ template <IsResultOrState> struct Step {
   static_assert(false, "Invalid state");
 };
 
-template <IsRegex R, IsEot P>
+template <typename R, IsEot P>
 struct Step<State<P, Sen<>, Nodes<R>>> : Id<ParseSuccess<R>> {};
 
-template <IsRegex R, IsProgress P>
+template <typename R, typename P>
 struct Step<State<P, Sen<>, Nodes<R>>> : Id<ParseFailure> {};
 
-template <IsProgress P, Symbol t, Symbol... ss, IsNodes N>
+template <typename P, Symbol t, Symbol... ss, typename N>
   requires(isAction(t))
 struct Step<State<P, Sen<t, ss...>, N>> : DoAction<t, P, Sen<ss...>, N> {};
 
-template <IsProgress P, Symbol t, Symbol... ss, IsNodes N>
+template <typename P, Symbol t, Symbol... ss, typename N>
   requires(isTerminal(t))
 struct Step<State<P, Sen<t, ss...>, N>> : ConsumeTerminal<t, P, Sen<ss...>, N> {
 };
 
-template <IsProgress P, Symbol t, Symbol... ss, IsNodes N>
+template <typename P, Symbol t, Symbol... ss, typename N>
 struct Step<State<P, Sen<t, ss...>, N>> : Predict<t, P, Sen<ss...>, N> {};
 
 template <IsResult R> struct Step<R> : Id<R> {};
@@ -454,15 +449,15 @@ template <RegexString regex>
 using initial_state_t = typename InitialState<regex>::type;
 
 template <IsResultOrState, size_t> struct Iter;
-template <IsResultOrState S, size_t N> using iter_t = typename Iter<S, N>::type;
+template <typename S, size_t N> using iter_t = typename Iter<S, N>::type;
 
-template <IsResultOrState S> struct Iter<S, 0> : Step<S> {};
+template <typename S> struct Iter<S, 0> : Step<S> {};
 template <IsResultOrState S, size_t N>
 struct Iter : Iter<iter_t<S, N - 1>, N - 1> {};
 
 template <IsResultOrState S, size_t N = 0>
-struct IterTilFixed : If<std::is_same_v<S, iter_t<S, N>>, Id<S>,
-                         IterTilFixed<iter_t<S, N>, N + 1>> {};
+struct IterTilFixed : LazyIf<std::is_same_v<S, iter_t<S, N>>, Id<S>,
+                             IterTilFixed<iter_t<S, N>, N + 1>> {};
 } // namespace iterate
 
 using iterate::initial_state_t;
@@ -470,16 +465,16 @@ using iterate::IterTilFixed;
 
 namespace match {
 
-template <IsRegex...> struct Matcher {
+template <typename...> struct Matcher {
   static_assert(false, "Missing matcher case");
 };
 
-template <IsRegex> struct StarNormal {
+template <typename> struct StarNormal {
   static_assert(false, "Missing StarNormal case");
 };
-template <IsRegex R> using star_normal_t = typename StarNormal<R>::type;
+template <typename R> using star_normal_t = typename StarNormal<R>::type;
 
-template <IsRegex R>
+template <typename R>
 inline constexpr auto is_nullable_v = []() {
   static_assert(false, "Missing nullable check");
   return false;
@@ -488,30 +483,30 @@ inline constexpr auto is_nullable_v = []() {
 template <bool e, char c>
 inline constexpr auto is_nullable_v<Literal<e, c>> = false;
 
-template <IsRegex... Rs>
+template <typename... Rs>
 inline constexpr auto is_nullable_v<Sequence<Rs...>> =
     (is_nullable_v<Rs> && ...);
 
-template <IsRegex... Rs>
+template <typename... Rs>
 inline constexpr auto is_nullable_v<Alternatives<Rs...>> =
     (is_nullable_v<Rs> || ...);
 
-template <IsRegex R>
+template <typename R>
 inline constexpr auto is_nullable_v<Group<R>> = is_nullable_v<R>;
 
-template <IsRegex R>
+template <typename R>
 inline constexpr auto is_nullable_v<Repetition<R, '*'>> = true;
 
-template <IsRegex R>
+template <typename R>
 inline constexpr auto is_nullable_v<Repetition<R, '?'>> = true;
 
-template <IsRegex R>
+template <typename R>
 inline constexpr auto is_nullable_v<Repetition<R, '+'>> = is_nullable_v<R>;
 
 template <bool e, char c>
 struct StarNormal<Literal<e, c>> : Id<Literal<e, c>> {};
 
-// needs to be typename here because the fold for IsRegex creates an atomic
+// needs to be typename here because the fold for typename creates an atomic
 // constraint and breaks subsumption with the nonnullable case below, causing
 // ambiguity.  Fixed in C++26 (P2963)
 template <typename... Rs>
@@ -522,20 +517,20 @@ struct StarNormal<Sequence<Rs...>> : Id<Alternatives<star_normal_t<Rs>...>> {};
 template <typename... Rs>
 struct StarNormal<Sequence<Rs...>> : Id<Sequence<Rs...>> {};
 
-template <IsRegex... Rs>
+template <typename... Rs>
 struct StarNormal<Alternatives<Rs...>>
     : Id<Alternatives<star_normal_t<Rs>...>> {};
 
-template <IsRegex R> struct StarNormal<Group<R>> : StarNormal<R> {};
+template <typename R> struct StarNormal<Group<R>> : StarNormal<R> {};
 
-template <IsRegex R, char r>
+template <typename R, char r>
 struct StarNormal<Repetition<R, r>> : StarNormal<R> {};
 
 template <> struct Matcher<> {
   static constexpr auto match(std::string_view text) { return text.empty(); }
 };
 
-template <bool e, char c, IsRegex... Rs> struct Matcher<Literal<e, c>, Rs...> {
+template <bool e, char c, typename... Rs> struct Matcher<Literal<e, c>, Rs...> {
   static constexpr auto match(std::string_view text) {
     if (text.empty() || text.front() != c)
       return false;
@@ -543,33 +538,35 @@ template <bool e, char c, IsRegex... Rs> struct Matcher<Literal<e, c>, Rs...> {
   }
 };
 
-template <IsRegex... Ras, IsRegex... Rbs>
+template <typename... Ras, typename... Rbs>
 struct Matcher<Sequence<Ras...>, Rbs...> {
   static constexpr auto match(std::string_view text) {
     return Matcher<Ras..., Rbs...>::match(text);
   }
 };
 
-template <IsRegex... Ras, IsRegex... Rbs>
+template <typename... Ras, typename... Rbs>
 struct Matcher<Alternatives<Ras...>, Rbs...> {
   static constexpr auto match(std::string_view text) {
     return (Matcher<Ras, Rbs...>::match(text) || ...);
   }
 };
 
-template <IsRegex R, IsRegex... Rs> struct Matcher<Group<R>, Rs...> {
+template <typename R, typename... Rs> struct Matcher<Group<R>, Rs...> {
   static constexpr auto match(std::string_view text) {
     return Matcher<R, Rs...>::match(text);
   }
 };
 
-template <IsRegex R, IsRegex... Rs> struct Matcher<Repetition<R, '?'>, Rs...> {
+template <typename R, typename... Rs>
+struct Matcher<Repetition<R, '?'>, Rs...> {
   static constexpr auto match(std::string_view text) {
     return Matcher<R, Rs...>::match(text) || Matcher<Rs...>::match(text);
   }
 };
 
-template <IsRegex R, IsRegex... Rs> struct Matcher<Repetition<R, '*'>, Rs...> {
+template <typename R, typename... Rs>
+struct Matcher<Repetition<R, '*'>, Rs...> {
   // need to specify return type due to recursion
   static constexpr auto match(std::string_view text) -> bool {
     return Matcher<star_normal_t<R>, Repetition<R, '*'>, Rs...>::match(text) ||
@@ -577,7 +574,8 @@ template <IsRegex R, IsRegex... Rs> struct Matcher<Repetition<R, '*'>, Rs...> {
   }
 };
 
-template <IsRegex R, IsRegex... Rs> struct Matcher<Repetition<R, '+'>, Rs...> {
+template <typename R, typename... Rs>
+struct Matcher<Repetition<R, '+'>, Rs...> {
   static constexpr auto match(std::string_view text) {
     return Matcher<R, Repetition<R, '*'>, Rs...>::match(text);
   }
