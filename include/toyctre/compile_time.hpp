@@ -1,5 +1,6 @@
 #pragma once
 
+#include "grammar.hpp"
 #include <algorithm>
 #include <array>
 #include <concepts>
@@ -9,8 +10,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace toyctre {
-namespace compile_time {
+namespace toyctre::compile_time {
 
 namespace helpers {
 using std::size_t;
@@ -65,6 +65,7 @@ using at_t = typename decltype(pick<I>(
 } // namespace helpers
 
 namespace detail {
+using grammar::Symbol;
 using helpers::at_t;
 using helpers::concat_t;
 using helpers::head_t;
@@ -79,59 +80,6 @@ template <size_t N> struct RegexString {
   char data[N];
   constexpr auto size() const { return N; }
 };
-
-enum class Symbol {
-  Start,
-  Alt,
-  Cat,
-  Cats,
-  Reps,
-  Unt,
-  Amt,
-  Lit,
-
-  Terminals_,
-  T_Rep,
-  T_LPar,
-  T_RPar,
-  T_Esc,
-  T_Bar,
-  T_Reg,
-  T_Eot,
-
-  Actions_,
-  A_Mark,
-  A_Alts,
-  A_Cats,
-  A_Group,
-  A_Lit,
-  A_Esc,
-  A_Rep,
-
-  A_Reject,
-
-  Size_
-};
-
-constexpr auto lexChar(char c) {
-  using enum Symbol;
-  switch (c) {
-  case '(':
-    return T_LPar;
-  case ')':
-    return T_RPar;
-  case '*':
-  case '?':
-  case '+':
-    return T_Rep;
-  case '|':
-    return T_Bar;
-  case '\\':
-    return T_Esc;
-  default:
-    return T_Reg;
-  }
-}
 
 namespace parse_tree {
 
@@ -171,8 +119,9 @@ template <bool e, char c> struct Literal {
   static constexpr std::string toString() {
     if constexpr (e) {
       return std::string{'\\', c};
+    } else {
+      return std::string{c};
     }
-    return std::string{c};
   }
 };
 template <bool e, char c>
@@ -206,7 +155,7 @@ concept IsEot = IsProgress<T> && T::at_eot;
 
 template <IsProgress P>
 inline constexpr auto lex_v =
-    P::at_eot ? Symbol::T_Eot : lexChar(P::current_char);
+    P::at_eot ? Symbol::T_Eot : grammar::lexChar(P::current_char);
 
 } // namespace progress
 using progress::IsEot;
@@ -238,12 +187,9 @@ template <typename S>
 concept IsState = is_state_v<S>;
 
 struct ParseFailure {};
-template <IsRegex R> struct ParseSuccess {
-  using result = R;
-};
 
 template <typename> inline constexpr auto is_result_v = false;
-template <typename R> inline constexpr auto is_result_v<ParseSuccess<R>> = true;
+template <IsRegex R> inline constexpr auto is_result_v<R> = true;
 template <> inline constexpr auto is_result_v<ParseFailure> = true;
 template <typename T>
 concept IsResult = is_result_v<T>;
@@ -259,11 +205,11 @@ using state::IsSentinels;
 using state::Mark;
 using state::Nodes;
 using state::ParseFailure;
-using state::ParseSuccess;
 using state::Sen;
 using state::State;
 
 namespace consume {
+using enum Symbol;
 
 template <Symbol t, typename P, typename S, typename N>
 struct ConsumeTerminal : Id<ParseFailure> {};
@@ -271,11 +217,11 @@ struct ConsumeTerminal : Id<ParseFailure> {};
 // EOT check is unnecessary since the IsEot specialization is more specific, but
 // it is included for clarity
 template <Symbol t, typename P, typename S, typename N>
-  requires(t != Symbol::T_Eot && t == lex_v<P>)
+  requires(t != T_Eot && t == lex_v<P>)
 struct ConsumeTerminal<t, P, S, N> : Id<State<typename P::next, S, N>> {};
 
 template <IsEot P, typename S, typename N>
-struct ConsumeTerminal<Symbol::T_Eot, P, S, N> : Id<State<P, S, N>> {};
+struct ConsumeTerminal<T_Eot, P, S, N> : Id<State<P, S, N>> {};
 
 } // namespace consume
 using consume::ConsumeTerminal;
@@ -422,8 +368,9 @@ template <IsResultOrState> struct Step {
   static_assert(false, "Invalid state");
 };
 
-template <typename R, IsEot P>
-struct Step<State<P, Sen<>, Nodes<R>>> : Id<ParseSuccess<R>> {};
+template <typename R, IsEot P> struct Step<State<P, Sen<>, Nodes<R>>> : Id<R> {
+  static_assert(IsRegex<R>, "Parse ended with non-regex on stack");
+};
 
 template <typename R, typename P>
 struct Step<State<P, Sen<>, Nodes<R>>> : Id<ParseFailure> {};
@@ -586,9 +533,9 @@ using match::Matcher;
 
 } // namespace detail
 
+using detail::IsRegex;
 using detail::Matcher;
 using detail::ParseFailure;
-using detail::ParseSuccess;
 using detail::RegexString;
 
 template <RegexString regex>
@@ -598,5 +545,14 @@ struct CompileTimeRegex : detail::IterTilFixed<detail::initial_state_t<regex>> {
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
 
-} // namespace compile_time
-} // namespace toyctre
+template <RegexString regex> constexpr bool match(std::string_view text) {
+  using Regex = compile_time_regex_t<regex>;
+  if constexpr (IsRegex<Regex>) {
+    return Matcher<Regex>::match(text);
+  } else {
+    static_assert(IsRegex<Regex>, "failed to parse regex");
+    return false;
+  }
+}
+
+} // namespace toyctre::compile_time

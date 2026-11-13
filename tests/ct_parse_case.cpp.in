@@ -7,25 +7,26 @@
 
 #include <algorithm>
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <string>
-#include <type_traits>
 
 #cmakedefine01 CT_EXPECT_REJECT
 
 using toyctre::compile_time::compile_time_regex_t;
+using toyctre::compile_time::IsRegex;
 using toyctre::compile_time::ParseFailure;
 
 constexpr auto regex = R"__re__(@CT_REGEX@)__re__";
 using Result = compile_time_regex_t<R"__re__(@CT_REGEX@)__re__">;
 
 #if CT_EXPECT_REJECT
-static_assert(std::is_same_v<Result, ParseFailure>,
-              "expected regex to be rejected (result should be ParseFailure)");
+// Check for ParseFailure specifically: anything else that isn't a tree (a
+// leftover State or Mark) is a parser bug, not a rejection.
+static_assert(std::same_as<Result, ParseFailure>,
+              "expected regex to be rejected");
 #else
-static_assert(
-    !std::is_same_v<Result, ParseFailure>,
-    "expected regex to be accepted (result should not be ParseFailure)");
+static_assert(IsRegex<Result>, "expected regex to be accepted");
 
 // static_assert with a computed message (C++26 P2741, enabled in C++23 mode
 // via -Wno-c++26-extensions in ct_parser_cases.cmake). A std::string can't
@@ -41,8 +42,8 @@ template <auto F> constexpr auto frozen() {
   return m;
 }
 
-static_assert(Result::result::toString() == regex, frozen<[] {
-  return "round trip mismatch: got '" + Result::result::toString() +
-         "', expected '" + std::string{regex} + "'";
-}>());
+static_assert(Result::toString() == regex, frozen<[] {
+                return "round trip mismatch: got '" + Result::toString() +
+                       "', expected '" + std::string{regex} + "'";
+              }>());
 #endif

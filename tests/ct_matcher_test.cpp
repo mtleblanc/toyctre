@@ -9,13 +9,12 @@
 #include <initializer_list>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 // Match/no-match tests for the compile-time (continuation) matcher.
 //
 // Semantics are the same as the runtime matcher tests (matcher_test.cpp):
-//   - Matcher<T>::match() is a full match
+//   - compile_time::match<re>() is a full match
 //   - '.' is an ordinary literal
 //   - an escaped character is the literal character
 //
@@ -32,23 +31,11 @@ namespace toyctre {
 namespace {
 
 using namespace std::string_view_literals;
-using compile_time::compile_time_regex_t;
-using compile_time::Matcher;
-using compile_time::ParseFailure;
 using compile_time::RegexString;
-
-template <RegexString re>
-using tree_t = typename compile_time_regex_t<re>::result;
 
 template <RegexString re> constexpr std::string_view patternOf() {
   // RegexString stores the trailing NUL.
   return {re.data, re.size() - 1};
-}
-
-template <RegexString re> constexpr bool ctMatch(std::string_view text) {
-  static_assert(!std::is_same_v<compile_time_regex_t<re>, ParseFailure>,
-                "test regex failed to parse");
-  return Matcher<tree_t<re>>::match(text);
 }
 
 template <RegexString re>
@@ -58,11 +45,11 @@ void checkMatches(std::initializer_list<std::string_view> matching,
   CAPTURE(pattern);
   for (auto text : matching) {
     CAPTURE(text);
-    CHECK(ctMatch<re>(text));
+    CHECK(compile_time::match<re>(text));
   }
   for (auto text : nonMatching) {
     CAPTURE(text);
-    CHECK_FALSE(ctMatch<re>(text));
+    CHECK_FALSE(compile_time::match<re>(text));
   }
 }
 
@@ -88,7 +75,7 @@ void checkAgainstRuntime(std::string_view alphabet, std::size_t maxLen) {
 
   for (const auto &text : texts) {
     CAPTURE(text);
-    CHECK(ctMatch<re>(text) == match(parsed.regex, text));
+    CHECK(compile_time::match<re>(text) == match(parsed.regex, text));
   }
 }
 
@@ -119,15 +106,15 @@ template <auto F> constexpr auto frozen() {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("CT: Usable in constant expressions", "[ct_matcher][constexpr]") {
-  STATIC_CHECK(ctMatch<"abc">("abc"));
-  STATIC_CHECK_FALSE(ctMatch<"abc">("abd"));
-  STATIC_CHECK(ctMatch<"a|b">("b"));
-  STATIC_CHECK_FALSE(ctMatch<"a|b">("ab"));
-  STATIC_CHECK(ctMatch<"ab*c">("abbbc"));
-  STATIC_CHECK(ctMatch<"a+">("aaa"));
-  STATIC_CHECK_FALSE(ctMatch<"a+">(""));
-  STATIC_CHECK(ctMatch<"ab?">("a"));
-  STATIC_CHECK(ctMatch<R"re(a\*)re">("a*"));
+  STATIC_CHECK(compile_time::match<"abc">("abc"));
+  STATIC_CHECK_FALSE(compile_time::match<"abc">("abd"));
+  STATIC_CHECK(compile_time::match<"a|b">("b"));
+  STATIC_CHECK_FALSE(compile_time::match<"a|b">("ab"));
+  STATIC_CHECK(compile_time::match<"ab*c">("abbbc"));
+  STATIC_CHECK(compile_time::match<"a+">("aaa"));
+  STATIC_CHECK_FALSE(compile_time::match<"a+">(""));
+  STATIC_CHECK(compile_time::match<"ab?">("a"));
+  STATIC_CHECK(compile_time::match<R"re(a\*)re">("a*"));
 }
 
 // ---------------------------------------------------------------------------
