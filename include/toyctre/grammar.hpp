@@ -1,15 +1,18 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <bitset>
 #include <cstddef>
+#include <iterator>
 #include <ranges>
 #include <span>
 #include <stdexcept>
-#include <type_traits>
 #include <utility>
 #include <vector>
+
 namespace toyctre::grammar {
+
 enum class Symbol {
   Start,
   Alt,
@@ -131,15 +134,17 @@ template <typename T, size_t N> struct InPlaceVector {
     std::copy(o.begin(), o.end(), data.begin());
   }
 
-  consteval InPlaceVector(std::ranges::range auto &&r) {
-    auto it = data.begin();
+  consteval static InPlaceVector flatten(std::ranges::range auto &&r) {
+    auto ret = InPlaceVector{};
+    auto it = ret.data.begin();
     for (const auto &v : r) {
-      used += v.size();
-      if (used > N) {
+      ret.used += v.size();
+      if (ret.used > N) {
         throw std::out_of_range{"More elements in range than capacity"};
       }
       it = std::copy(v.begin(), v.end(), it);
     }
+    return ret;
   }
 
   [[nodiscard]] constexpr auto begin() const noexcept { return data.begin(); }
@@ -170,8 +175,8 @@ template <InPlaceVector v> consteval auto view() {
 template <typename F = decltype([]() { return dynamicProductions(); }),
           size_t N = 50>
 consteval auto packedProductions() {
-  constexpr auto oversized = InPlaceVector<Symbol, N>{
-      F{}() | std::ranges::views::transform([](auto p) { return p.body; })};
+  constexpr auto oversized = InPlaceVector<Symbol, N>::flatten(
+      F{}() | std::ranges::views::transform([](auto p) { return p.body; }));
   constexpr InPlaceVector<Symbol, oversized.size()> sized = oversized;
   constexpr auto v = view<sized>();
 
@@ -188,7 +193,7 @@ consteval auto packedProductions() {
 
 } // namespace detail
 
-constexpr auto productions = detail::packedProductions();
+inline constexpr auto productions = detail::packedProductions();
 
 namespace detail {
 
@@ -202,7 +207,7 @@ template <typename E, typename V, size_t N> struct EnumIndexedArray {
   }
 };
 
-constexpr auto table = []() {
+inline constexpr auto table = []() {
   using LL1Table =
       EnumIndexedArray<Symbol, EnumIndexedArray<Symbol, size_t, NSymbols>,
                        NSymbols>;
@@ -317,9 +322,7 @@ constexpr auto table = []() {
 
 using detail::table;
 
-template <Symbol... ss> struct SymbolList {};
-
-template <Symbol nt, Symbol la> struct Predict {
+template <Symbol nt, Symbol la> struct Produce {
   static constexpr auto production = table[nt][la];
   static constexpr auto body = productions[production].body;
   template <template <Symbol...> class List, size_t... Is>
@@ -327,7 +330,8 @@ template <Symbol nt, Symbol la> struct Predict {
   template <template <Symbol...> class List>
   using type = decltype(f<List>(std::make_index_sequence<body.size()>{}));
 };
+
 template <template <Symbol...> class List, Symbol nt, Symbol la>
-using predict_t = typename Predict<nt, la>::template type<List>;
+using produce_list_t = typename Produce<nt, la>::template type<List>;
 
 } // namespace toyctre::grammar

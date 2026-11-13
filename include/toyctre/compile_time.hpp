@@ -1,6 +1,6 @@
 #pragma once
 
-#include "grammar.hpp"
+#include "toyctre/grammar.hpp"
 #include <algorithm>
 #include <array>
 #include <concepts>
@@ -290,7 +290,7 @@ namespace produce {
 using enum Symbol;
 
 template <Symbol nt, Symbol la>
-using produce_t = typename grammar::predict_t<Sen, nt, la>;
+using produce_t = grammar::produce_list_t<Sen, nt, la>;
 
 template <Symbol nt, typename P, typename S, typename N>
 struct Predict : Id<State<P, concat_t<produce_t<nt, lex_v<P>>, S>, N>> {};

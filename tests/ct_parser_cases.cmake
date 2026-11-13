@@ -16,19 +16,54 @@
 set(CT_PARSE_DIR ${CMAKE_CURRENT_BINARY_DIR}/ct_parse)
 file(MAKE_DIRECTORY ${CT_PARSE_DIR})
 
-set(CT_PARSE_FLAGS
+set(CT_COMMON_FLAGS
   -std=c++${CMAKE_CXX_STANDARD}
-  -fsyntax-only
   -Wall -Wextra -Wpedantic -Werror
   # static_assert with a computed message (C++26) is used in C++23 mode.
   -Wno-c++26-extensions
-  -I${PROJECT_SOURCE_DIR}/include
 )
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  list(APPEND CT_PARSE_FLAGS -fmax-errors=1)
+  list(APPEND CT_COMMON_FLAGS -fmax-errors=1)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  list(APPEND CT_PARSE_FLAGS -ferror-limit=1)
+  list(APPEND CT_COMMON_FLAGS -ferror-limit=1)
 endif()
+
+# Precompiled compile_time.hpp. Every case is its own compiler run, so without
+# this each one re-parses the standard headers and re-evaluates the grammar
+# tables. The PCH is rebuilt by a fixture test at the start of every ctest run
+# that includes a ct_parser case, so it can't go stale against the headers
+# (GCC in particular does not check whether a .gch is older than its header).
+set(CT_PCH_HEADER ${PROJECT_SOURCE_DIR}/include/toyctre/compile_time.hpp)
+set(CT_PCH_FLAGS)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # GCC looks for <name>.gch in each include directory before <name>, so put
+  # the .gch at toyctre/compile_time.hpp.gch in a directory searched first.
+  set(CT_PCH_DIR ${CT_PARSE_DIR}/pch)
+  set(CT_PCH_OUT ${CT_PCH_DIR}/toyctre/compile_time.hpp.gch)
+  file(MAKE_DIRECTORY ${CT_PCH_DIR}/toyctre)
+  # -Winvalid-pch (an error under -Werror) instead of silently falling back to
+  # the header if the flags ever drift apart.
+  set(CT_PCH_FLAGS -I${CT_PCH_DIR} -Winvalid-pch)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set(CT_PCH_OUT ${CT_PARSE_DIR}/compile_time.pch)
+  set(CT_PCH_FLAGS -include-pch ${CT_PCH_OUT})
+endif()
+
+if(DEFINED CT_PCH_OUT)
+  add_test(NAME "CT parse: build precompiled header"
+    COMMAND ${CMAKE_CXX_COMPILER} ${CT_COMMON_FLAGS}
+      -I${PROJECT_SOURCE_DIR}/include
+      -x c++-header ${CT_PCH_HEADER} -o ${CT_PCH_OUT})
+  set_tests_properties("CT parse: build precompiled header" PROPERTIES
+    LABELS "ct_parser" FIXTURES_SETUP ct_pch)
+endif()
+
+set(CT_PARSE_FLAGS
+  ${CT_COMMON_FLAGS}
+  -fsyntax-only
+  ${CT_PCH_FLAGS}
+  -I${PROJECT_SOURCE_DIR}/include
+)
 
 set(CT_PARSE_INDEX 0)
 
@@ -70,7 +105,8 @@ function(ct_parse_case expect category regex)
   add_test(NAME "${name}"
     COMMAND ${CMAKE_CXX_COMPILER} ${CT_PARSE_FLAGS} ${file})
   set_tests_properties("${name}" PROPERTIES
-    LABELS "ct_parser;ct_${expect};ct_${category}")
+    LABELS "ct_parser;ct_${expect};ct_${category}"
+    FIXTURES_REQUIRED ct_pch)
 endfunction()
 
 # ---------------------------------------------------------------------------
