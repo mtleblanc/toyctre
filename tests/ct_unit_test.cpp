@@ -151,15 +151,15 @@ TEST_CASE("CT unit: is_regex_v", "[ct_unit][parse_tree]") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("CT unit: State concepts", "[ct_unit][state]") {
-  using S = State<Progress<"a", 0>, Sen<Start>, Nodes<>>;
+  using S = State<Progress<"a", 0>, Sentinels<Start>, Nodes<>>;
 
-  STATIC_REQUIRE(IsSentinels<Sen<>>);
-  STATIC_REQUIRE(IsSentinels<Sen<Start, T_Eot>>);
+  STATIC_REQUIRE(IsSentinels<Sentinels<>>);
+  STATIC_REQUIRE(IsSentinels<Sentinels<Start, T_Eot>>);
   STATIC_REQUIRE(!IsSentinels<Nodes<>>);
 
   STATIC_REQUIRE(IsNodes<Nodes<>>);
   STATIC_REQUIRE(IsNodes<Nodes<La, Mark>>);
-  STATIC_REQUIRE(!IsNodes<Sen<>>);
+  STATIC_REQUIRE(!IsNodes<Sentinels<>>);
 
   STATIC_REQUIRE(state::IsState<S>);
   STATIC_REQUIRE(!state::IsState<ParseFailure>);
@@ -185,7 +185,7 @@ TEST_CASE("CT unit: State concepts", "[ct_unit][state]") {
 TEST_CASE("CT unit: ConsumeTerminal", "[ct_unit][parser]") {
   using P0 = Progress<"a", 0>;
   using P1 = Progress<"a", 1>; // at EOT
-  using S = Sen<A_Cats>;
+  using S = Sentinels<A_Cats>;
   using N = Nodes<Mark>;
 
   // Matching terminal: advance, keep sentinels and nodes.
@@ -242,7 +242,7 @@ TEST_CASE("CT unit: NextNodes", "[ct_unit][parser]") {
 
 TEST_CASE("CT unit: DoAction", "[ct_unit][parser]") {
   using P = Progress<"*", 0>;
-  using S = Sen<T_Rep>;
+  using S = Sentinels<T_Rep>;
 
   // The action sees the current char but doesn't consume it.
   STATIC_REQUIRE(same<DoAction<A_Rep, P, S, Nodes<La>>::type,
@@ -255,35 +255,40 @@ TEST_CASE("CT unit: DoAction", "[ct_unit][parser]") {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("CT unit: produce_t", "[ct_unit][parser]") {
-  STATIC_REQUIRE(same<produce_t<Start, T_Reg>, Sen<Alt, T_Eot>>);
-  STATIC_REQUIRE(same<produce_t<Alt, T_LPar>, Sen<A_Mark, Cat, Cats, A_Alts>>);
-  STATIC_REQUIRE(same<produce_t<Cats, T_Bar>, Sen<T_Bar, Cat, Cats>>);
-  STATIC_REQUIRE(same<produce_t<Cats, T_Eot>, Sen<>>);
+  STATIC_REQUIRE(same<produce_t<Start, T_Reg>, Sentinels<Alt, T_Eot>>);
   STATIC_REQUIRE(
-      same<produce_t<Unt, T_LPar>, Sen<T_LPar, Alt, A_Group, T_RPar>>);
-  STATIC_REQUIRE(same<produce_t<Unt, T_Esc>, Sen<T_Esc, A_Esc, Lit>>);
-  STATIC_REQUIRE(same<produce_t<Amt, T_Rep>, Sen<A_Rep, T_Rep>>);
-  STATIC_REQUIRE(same<produce_t<Amt, T_Reg>, Sen<>>);
+      same<produce_t<Alt, T_LPar>, Sentinels<A_Mark, Cat, Cats, A_Alts>>);
+  STATIC_REQUIRE(same<produce_t<Cats, T_Bar>, Sentinels<T_Bar, Cat, Cats>>);
+  STATIC_REQUIRE(same<produce_t<Cats, T_Eot>, Sentinels<>>);
+  STATIC_REQUIRE(
+      same<produce_t<Unt, T_LPar>, Sentinels<T_LPar, Alt, A_Group, T_RPar>>);
+  STATIC_REQUIRE(same<produce_t<Unt, T_Esc>, Sentinels<T_Esc, A_Esc, Lit>>);
+  STATIC_REQUIRE(same<produce_t<Amt, T_Rep>, Sentinels<A_Rep, T_Rep>>);
+  STATIC_REQUIRE(same<produce_t<Amt, T_Reg>, Sentinels<>>);
   // An escaped metacharacter lexes as a plain T_Reg afterwards.
-  STATIC_REQUIRE(same<produce_t<Lit, T_Rep>, Sen<T_Rep>>);
+  STATIC_REQUIRE(same<produce_t<Lit, T_Rep>, Sentinels<T_Rep>>);
 
   // Empty table cells reject.
-  STATIC_REQUIRE(same<produce_t<Start, T_Eot>, Sen<A_Reject>>); // empty regex
-  STATIC_REQUIRE(same<produce_t<Cat, T_Bar>, Sen<A_Reject>>);   // empty alt
-  STATIC_REQUIRE(same<produce_t<Unt, T_RPar>, Sen<A_Reject>>);  // empty group
-  STATIC_REQUIRE(same<produce_t<Unt, T_Rep>, Sen<A_Reject>>);   // leading rep
-  STATIC_REQUIRE(same<produce_t<Lit, T_Eot>, Sen<A_Reject>>);   // trailing '\'
+  STATIC_REQUIRE(
+      same<produce_t<Start, T_Eot>, Sentinels<A_Reject>>); // empty regex
+  STATIC_REQUIRE(same<produce_t<Cat, T_Bar>, Sentinels<A_Reject>>); // empty alt
+  STATIC_REQUIRE(
+      same<produce_t<Unt, T_RPar>, Sentinels<A_Reject>>); // empty group
+  STATIC_REQUIRE(
+      same<produce_t<Unt, T_Rep>, Sentinels<A_Reject>>); // leading rep
+  STATIC_REQUIRE(
+      same<produce_t<Lit, T_Eot>, Sentinels<A_Reject>>); // trailing '\'
 }
 
 TEST_CASE("CT unit: Predict", "[ct_unit][parser]") {
   using P = Progress<"a", 0>;
   // The production goes in front of the remaining sentinels.
   STATIC_REQUIRE(same<predict_t<Start, P, Nodes<>, T_Bar>,
-                      State<P, Sen<Alt, T_Eot, T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(
-      same<predict_t<Amt, P, Nodes<>, T_Bar>, State<P, Sen<T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(
-      same<predict_t<Cats, P, Nodes<>>, State<P, Sen<A_Reject>, Nodes<>>>);
+                      State<P, Sentinels<Alt, T_Eot, T_Bar>, Nodes<>>>);
+  STATIC_REQUIRE(same<predict_t<Amt, P, Nodes<>, T_Bar>,
+                      State<P, Sentinels<T_Bar>, Nodes<>>>);
+  STATIC_REQUIRE(same<predict_t<Cats, P, Nodes<>>,
+                      State<P, Sentinels<A_Reject>, Nodes<>>>);
 }
 
 // ---------------------------------------------------------------------------
@@ -312,16 +317,17 @@ TEST_CASE("CT unit: Step", "[ct_unit][parser]") {
   using P1 = Progress<"a", 1>;
 
   // Each kind of top sentinel dispatches to its handler.
-  STATIC_REQUIRE(same<Step<State<P0, Sen<A_Mark, T_Eot>, Nodes<>>>::type,
-                      State<P0, Sen<T_Eot>, Nodes<Mark>>>);
-  STATIC_REQUIRE(same<Step<State<P0, Sen<T_Reg>, Nodes<>>>::type,
-                      State<P1, Sen<>, Nodes<>>>);
-  STATIC_REQUIRE(same<Step<State<P0, Sen<Start>, Nodes<>>>::type,
-                      State<P0, Sen<Alt, T_Eot>, Nodes<>>>);
+  STATIC_REQUIRE(same<Step<State<P0, Sentinels<A_Mark, T_Eot>, Nodes<>>>::type,
+                      State<P0, Sentinels<T_Eot>, Nodes<Mark>>>);
+  STATIC_REQUIRE(same<Step<State<P0, Sentinels<T_Reg>, Nodes<>>>::type,
+                      State<P1, Sentinels<>, Nodes<>>>);
+  STATIC_REQUIRE(same<Step<State<P0, Sentinels<Start>, Nodes<>>>::type,
+                      State<P0, Sentinels<Alt, T_Eot>, Nodes<>>>);
 
   // No sentinels left: success only with exactly one node at EOT.
-  STATIC_REQUIRE(same<Step<State<P1, Sen<>, Nodes<La>>>::type, La>);
-  STATIC_REQUIRE(same<Step<State<P0, Sen<>, Nodes<La>>>::type, ParseFailure>);
+  STATIC_REQUIRE(same<Step<State<P1, Sentinels<>, Nodes<La>>>::type, La>);
+  STATIC_REQUIRE(
+      same<Step<State<P0, Sentinels<>, Nodes<La>>>::type, ParseFailure>);
 
   // Results are fixed points.
   STATIC_REQUIRE(same<Step<La>::type, La>);
@@ -333,7 +339,7 @@ TEST_CASE("CT unit: Iter and IterTilResult", "[ct_unit][parser]") {
   using iterate::Step;
   using S0 = initial_state_t<"a">;
 
-  STATIC_REQUIRE(same<S0, State<Progress<"a", 0>, Sen<Start>, Nodes<>>>);
+  STATIC_REQUIRE(same<S0, State<Progress<"a", 0>, Sentinels<Start>, Nodes<>>>);
 
   using S1 = Step<S0>::type;
   using S2 = Step<S1>::type;

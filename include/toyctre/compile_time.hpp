@@ -132,11 +132,12 @@ using progress::Progress;
 
 namespace state {
 
-template <Symbol... ss> struct Sen {
-  template <Symbol... tt> using append = Sen<ss..., tt...>;
+template <Symbol... ss> struct Sentinels {
+  template <Symbol... tt> using append = Sentinels<ss..., tt...>;
 };
 template <typename S> inline constexpr auto is_sentinels_v = false;
-template <Symbol... ss> inline constexpr auto is_sentinels_v<Sen<ss...>> = true;
+template <Symbol... ss>
+inline constexpr auto is_sentinels_v<Sentinels<ss...>> = true;
 template <typename S>
 concept IsSentinels = is_sentinels_v<S>;
 
@@ -174,7 +175,7 @@ using state::IsSentinels;
 using state::Mark;
 using state::Nodes;
 using state::ParseFailure;
-using state::Sen;
+using state::Sentinels;
 using state::State;
 
 namespace consume {
@@ -259,7 +260,7 @@ namespace produce {
 using enum Symbol;
 
 template <Symbol nt, Symbol la>
-using produce_t = grammar::produce_list_t<Sen, nt, la>;
+using produce_t = grammar::produce_list_t<Sentinels, nt, la>;
 
 template <Symbol nt, typename P, typename N, Symbol... ss>
 using predict_t =
@@ -279,24 +280,26 @@ template <IsResultOrState> struct Step {
   static_assert(false, "Invalid state");
 };
 
-template <typename R, IsEot P> struct Step<State<P, Sen<>, Nodes<R>>> : Id<R> {
+template <typename R, IsEot P>
+struct Step<State<P, Sentinels<>, Nodes<R>>> : Id<R> {
   static_assert(IsRegex<R>, "Parse ended with non-regex on stack");
 };
 
 template <typename R, typename P>
-struct Step<State<P, Sen<>, Nodes<R>>> : Id<ParseFailure> {};
+struct Step<State<P, Sentinels<>, Nodes<R>>> : Id<ParseFailure> {};
 
 template <typename P, Symbol t, Symbol... ss, typename N>
   requires(isAction(t))
-struct Step<State<P, Sen<t, ss...>, N>> : DoAction<t, P, Sen<ss...>, N> {};
+struct Step<State<P, Sentinels<t, ss...>, N>>
+    : DoAction<t, P, Sentinels<ss...>, N> {};
 
 template <typename P, Symbol t, Symbol... ss, typename N>
   requires(isTerminal(t))
-struct Step<State<P, Sen<t, ss...>, N>> : ConsumeTerminal<t, P, Sen<ss...>, N> {
-};
+struct Step<State<P, Sentinels<t, ss...>, N>>
+    : ConsumeTerminal<t, P, Sentinels<ss...>, N> {};
 
 template <typename P, Symbol t, Symbol... ss, typename N>
-struct Step<State<P, Sen<t, ss...>, N>> {
+struct Step<State<P, Sentinels<t, ss...>, N>> {
   using type = predict_t<t, P, N, ss...>;
 };
 
@@ -304,7 +307,7 @@ template <IsResult R> struct Step<R> : Id<R> {};
 
 template <RegexString regex>
 struct InitialState
-    : Id<State<Progress<regex.data, 0>, Sen<Symbol::Start>, Nodes<>>> {};
+    : Id<State<Progress<regex.data, 0>, Sentinels<Symbol::Start>, Nodes<>>> {};
 template <RegexString regex>
 using initial_state_t = typename InitialState<regex>::type;
 
