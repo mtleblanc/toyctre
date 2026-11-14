@@ -11,5 +11,6 @@
     - [x] predict_t
     - [x] concat_t in predict_t - sentinels already deduced, reuse
     - [x] remove push_t, head_t, Replace head, use deduced lists
+    - [x] replace : Id<T> with explicit using type = T;
   - [ ] Use packs instead of recursion where possible
 

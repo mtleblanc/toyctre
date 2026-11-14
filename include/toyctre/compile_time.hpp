@@ -32,7 +32,6 @@ using at_t = typename decltype(pick<I>(
 namespace detail {
 using grammar::Symbol;
 using helpers::at_t;
-using helpers::Id;
 using std::size_t;
 
 template <size_t N> struct RegexString {
@@ -153,17 +152,22 @@ using state::State;
 namespace consume {
 using enum Symbol;
 
-template <Symbol t, typename P, typename S, typename N>
-struct ConsumeTerminal : Id<ParseFailure> {};
+template <Symbol t, typename P, typename S, typename N> struct ConsumeTerminal {
+  using type = ParseFailure;
+};
 
 // EOT check is unnecessary since the IsEot specialization is more specific, but
 // it is included for clarity
 template <Symbol t, typename P, typename S, typename N>
   requires(t != T_Eot && t == lex_v<P>)
-struct ConsumeTerminal<t, P, S, N> : Id<State<typename P::next, S, N>> {};
+struct ConsumeTerminal<t, P, S, N> {
+  using type = State<typename P::next, S, N>;
+};
 
 template <IsEot P, typename S, typename N>
-struct ConsumeTerminal<T_Eot, P, S, N> : Id<State<P, S, N>> {};
+struct ConsumeTerminal<T_Eot, P, S, N> {
+  using type = State<P, S, N>;
+};
 
 } // namespace consume
 using consume::ConsumeTerminal;
@@ -189,45 +193,53 @@ struct Merge<List, Nodes<Ts...>> {
   static_assert(mark_index < sizeof...(Ts), "Mark not found");
 
   template <size_t... Is>
-  static Id<List<at_t<mark_index - Is - 1, Ts...>...>>
+  static List<at_t<mark_index - Is - 1, Ts...>...>
       merge_f(std::index_sequence<Is...>);
-  using merged =
-      typename decltype(merge_f(std::make_index_sequence<mark_index>{}))::type;
+  using merged = decltype(merge_f(std::make_index_sequence<mark_index>{}));
 
   template <size_t... Is>
-  static Id<Nodes<merged, at_t<mark_index + Is + 1, Ts...>...>>
+  static Nodes<merged, at_t<mark_index + Is + 1, Ts...>...>
       next_f(std::index_sequence<Is...>);
-  using type = typename decltype(next_f(
-      std::make_index_sequence<sizeof...(Ts) - mark_index - 1>{}))::type;
+  using type = decltype(next_f(
+      std::make_index_sequence<sizeof...(Ts) - mark_index - 1>{}));
 };
 
 template <template <typename...> class List, typename R, typename... Rs>
-struct Merge<List, Nodes<R, Mark, Rs...>> : Id<Nodes<R, Rs...>> {};
+struct Merge<List, Nodes<R, Mark, Rs...>> {
+  using type = Nodes<R, Rs...>;
+};
 
-template <char c, typename... Rs>
-struct NextNodes<A_Mark, c, Nodes<Rs...>> : Id<Nodes<Mark, Rs...>> {};
+template <char c, typename... Rs> struct NextNodes<A_Mark, c, Nodes<Rs...>> {
+  using type = Nodes<Mark, Rs...>;
+};
 
 template <char c, typename N>
 struct NextNodes<A_Alts, c, N> : Merge<Alternatives, N> {};
 template <char c, typename N>
 struct NextNodes<A_Cats, c, N> : Merge<Sequence, N> {};
 template <char c, typename R, typename... Rs>
-struct NextNodes<A_Group, c, Nodes<R, Rs...>> : Id<Nodes<Group<R>, Rs...>> {};
-
-template <char c, typename... Rs>
-struct NextNodes<A_Lit, c, Nodes<Rs...>> : Id<Nodes<Literal<false, c>, Rs...>> {
+struct NextNodes<A_Group, c, Nodes<R, Rs...>> {
+  using type = Nodes<Group<R>, Rs...>;
 };
-template <char c, typename... Rs>
-struct NextNodes<A_Esc, c, Nodes<Rs...>> : Id<Nodes<Literal<true, c>, Rs...>> {
+
+template <char c, typename... Rs> struct NextNodes<A_Lit, c, Nodes<Rs...>> {
+  using type = Nodes<Literal<false, c>, Rs...>;
+};
+template <char c, typename... Rs> struct NextNodes<A_Esc, c, Nodes<Rs...>> {
+  using type = Nodes<Literal<true, c>, Rs...>;
 };
 template <char c, typename R, typename... Rs>
-struct NextNodes<A_Rep, c, Nodes<R, Rs...>>
-    : Id<Nodes<Repetition<R, c>, Rs...>> {};
+struct NextNodes<A_Rep, c, Nodes<R, Rs...>> {
+  using type = Nodes<Repetition<R, c>, Rs...>;
+};
 
-template <Symbol a, typename P, typename S, typename N>
-struct DoAction : Id<State<P, S, next_nodes_t<a, P::current_char, N>>> {};
+template <Symbol a, typename P, typename S, typename N> struct DoAction {
+  using type = State<P, S, next_nodes_t<a, P::current_char, N>>;
+};
 template <typename P, typename S, typename N>
-struct DoAction<A_Reject, P, S, N> : Id<ParseFailure> {};
+struct DoAction<A_Reject, P, S, N> {
+  using type = ParseFailure;
+};
 
 } // namespace action
 using action::DoAction;
@@ -256,13 +268,14 @@ template <IsResultOrState> struct Step {
   static_assert(false, "Invalid state");
 };
 
-template <typename R, IsEot P>
-struct Step<State<P, Sentinels<>, Nodes<R>>> : Id<R> {
+template <typename R, IsEot P> struct Step<State<P, Sentinels<>, Nodes<R>>> {
   static_assert(IsRegex<R>, "Parse ended with non-regex on stack");
+  using type = R;
 };
 
-template <typename R, typename P>
-struct Step<State<P, Sentinels<>, Nodes<R>>> : Id<ParseFailure> {};
+template <typename R, typename P> struct Step<State<P, Sentinels<>, Nodes<R>>> {
+  using type = ParseFailure;
+};
 
 template <typename P, Symbol t, Symbol... ss, typename N>
   requires(isAction(t))
@@ -279,11 +292,14 @@ struct Step<State<P, Sentinels<t, ss...>, N>> {
   using type = predict_t<t, P, N, ss...>;
 };
 
-template <IsResult R> struct Step<R> : Id<R> {};
+template <IsResult R> struct Step<R> {
+  using type = R;
+};
 
-template <RegexString regex>
-struct InitialState
-    : Id<State<Progress<regex.data, 0>, Sentinels<Symbol::Start>, Nodes<>>> {};
+template <RegexString regex> struct InitialState {
+  using type =
+      State<Progress<regex.data, 0>, Sentinels<Symbol::Start>, Nodes<>>;
+};
 template <RegexString regex>
 using initial_state_t = typename InitialState<regex>::type;
 
@@ -297,7 +313,9 @@ struct Iter : Iter<iter_t<S, N - 1>, N - 1> {};
 template <IsResultOrState S, size_t N = 0>
 struct IterTilResult : IterTilResult<iter_t<S, N>, N + 1> {};
 
-template <IsResult S, size_t N> struct IterTilResult<S, N> : Id<S> {};
+template <IsResult S, size_t N> struct IterTilResult<S, N> {
+  using type = S;
+};
 } // namespace iterate
 
 using iterate::initial_state_t;
@@ -343,19 +361,23 @@ inline constexpr auto is_nullable_v<Repetition<R, '?'>> = true;
 template <typename R>
 inline constexpr auto is_nullable_v<Repetition<R, '+'>> = is_nullable_v<R>;
 
-template <bool e, char c>
-struct StarNormal<Literal<e, c>> : Id<Literal<e, c>> {};
+template <bool e, char c> struct StarNormal<Literal<e, c>> {
+  using type = Literal<e, c>;
+};
 
 template <typename... Rs>
   requires(is_nullable_v<Rs> && ...)
-struct StarNormal<Sequence<Rs...>> : Id<Alternatives<star_normal_t<Rs>...>> {};
+struct StarNormal<Sequence<Rs...>> {
+  using type = Alternatives<star_normal_t<Rs>...>;
+};
 
-template <typename... Rs>
-struct StarNormal<Sequence<Rs...>> : Id<Sequence<Rs...>> {};
+template <typename... Rs> struct StarNormal<Sequence<Rs...>> {
+  using type = Sequence<Rs...>;
+};
 
-template <typename... Rs>
-struct StarNormal<Alternatives<Rs...>>
-    : Id<Alternatives<star_normal_t<Rs>...>> {};
+template <typename... Rs> struct StarNormal<Alternatives<Rs...>> {
+  using type = Alternatives<star_normal_t<Rs>...>;
+};
 
 template <typename R> struct StarNormal<Group<R>> : StarNormal<R> {};
 

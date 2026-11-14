@@ -39,10 +39,6 @@ struct NoType {};
 // helpers
 // ---------------------------------------------------------------------------
 
-TEST_CASE("CT unit: Id", "[ct_unit][helpers]") {
-  STATIC_REQUIRE(same<Id<int>::type, int>);
-}
-
 TEST_CASE("CT unit: at_t", "[ct_unit][helpers]") {
   STATIC_REQUIRE(same<at_t<0, int, char, long>, int>);
   STATIC_REQUIRE(same<at_t<1, int, char, long>, char>);
