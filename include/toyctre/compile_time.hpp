@@ -13,33 +13,9 @@ namespace toyctre::compile_time {
 namespace helpers {
 using std::size_t;
 
-template <bool, typename, typename> struct LazyIf;
-template <typename T, typename F> struct LazyIf<true, T, F> {
-  using type = typename T::type;
-};
-template <typename T, typename F> struct LazyIf<false, T, F> {
-  using type = typename F::type;
-};
-
 template <typename T> struct Id {
   using type = T;
 };
-
-template <typename, typename> struct Push;
-template <typename T, template <typename...> class List, typename... Ts>
-struct Push<T, List<Ts...>> : Id<List<T, Ts...>> {};
-template <typename T, typename List>
-using push_t = typename Push<T, List>::type;
-
-template <typename, typename> struct ReplaceHead;
-template <typename T, template <typename...> class List, typename H,
-          typename... Ts>
-struct ReplaceHead<T, List<H, Ts...>> : Id<List<T, Ts...>> {};
-
-template <typename> struct Head;
-template <template <typename...> class List, typename H, typename... Ts>
-struct Head<List<H, Ts...>> : Id<H> {};
-template <typename List> using head_t = typename Head<List>::type;
 
 template <size_t, typename> struct Indexed {};
 template <typename, typename...> struct IndexedAll;
@@ -56,11 +32,7 @@ using at_t = typename decltype(pick<I>(
 namespace detail {
 using grammar::Symbol;
 using helpers::at_t;
-using helpers::head_t;
 using helpers::Id;
-using helpers::LazyIf;
-using helpers::Push;
-using helpers::ReplaceHead;
 using std::size_t;
 
 template <size_t N> struct RegexString {
@@ -230,23 +202,27 @@ struct Merge<List, Nodes<Ts...>> {
 };
 
 template <template <typename...> class List, typename R, typename... Rs>
-struct Merge<List, Nodes<R, Mark, Rs...>> : Push<R, Nodes<Rs...>> {};
+struct Merge<List, Nodes<R, Mark, Rs...>> : Id<Nodes<R, Rs...>> {};
 
-template <char c, typename N> struct NextNodes<A_Mark, c, N> : Push<Mark, N> {};
+template <char c, typename... Rs>
+struct NextNodes<A_Mark, c, Nodes<Rs...>> : Id<Nodes<Mark, Rs...>> {};
 
 template <char c, typename N>
 struct NextNodes<A_Alts, c, N> : Merge<Alternatives, N> {};
 template <char c, typename N>
 struct NextNodes<A_Cats, c, N> : Merge<Sequence, N> {};
-template <char c, typename N>
-struct NextNodes<A_Group, c, N> : ReplaceHead<Group<head_t<N>>, N> {};
+template <char c, typename R, typename... Rs>
+struct NextNodes<A_Group, c, Nodes<R, Rs...>> : Id<Nodes<Group<R>, Rs...>> {};
 
-template <char c, typename N>
-struct NextNodes<A_Lit, c, N> : Push<Literal<false, c>, N> {};
-template <char c, typename N>
-struct NextNodes<A_Esc, c, N> : Push<Literal<true, c>, N> {};
-template <char c, typename N>
-struct NextNodes<A_Rep, c, N> : ReplaceHead<Repetition<head_t<N>, c>, N> {};
+template <char c, typename... Rs>
+struct NextNodes<A_Lit, c, Nodes<Rs...>> : Id<Nodes<Literal<false, c>, Rs...>> {
+};
+template <char c, typename... Rs>
+struct NextNodes<A_Esc, c, Nodes<Rs...>> : Id<Nodes<Literal<true, c>, Rs...>> {
+};
+template <char c, typename R, typename... Rs>
+struct NextNodes<A_Rep, c, Nodes<R, Rs...>>
+    : Id<Nodes<Repetition<R, c>, Rs...>> {};
 
 template <Symbol a, typename P, typename S, typename N>
 struct DoAction : Id<State<P, S, next_nodes_t<a, P::current_char, N>>> {};

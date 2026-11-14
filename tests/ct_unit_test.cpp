@@ -39,24 +39,8 @@ struct NoType {};
 // helpers
 // ---------------------------------------------------------------------------
 
-TEST_CASE("CT unit: Id and LazyIf", "[ct_unit][helpers]") {
+TEST_CASE("CT unit: Id", "[ct_unit][helpers]") {
   STATIC_REQUIRE(same<Id<int>::type, int>);
-  STATIC_REQUIRE(same<LazyIf<true, Id<int>, Id<char>>::type, int>);
-  STATIC_REQUIRE(same<LazyIf<false, Id<int>, Id<char>>::type, char>);
-  // Laziness: the untaken branch has no ::type and is never asked for one.
-  STATIC_REQUIRE(same<LazyIf<true, Id<int>, NoType>::type, int>);
-  STATIC_REQUIRE(same<LazyIf<false, NoType, Id<char>>::type, char>);
-}
-
-TEST_CASE("CT unit: Type list helpers", "[ct_unit][helpers]") {
-  STATIC_REQUIRE(same<helpers::push_t<int, Nodes<char>>, Nodes<int, char>>);
-  STATIC_REQUIRE(same<helpers::push_t<int, Nodes<>>, Nodes<int>>);
-
-  STATIC_REQUIRE(
-      same<ReplaceHead<int, Nodes<char, long>>::type, Nodes<int, long>>);
-  STATIC_REQUIRE(same<ReplaceHead<int, Nodes<char>>::type, Nodes<int>>);
-
-  STATIC_REQUIRE(same<head_t<Nodes<int, char>>, int>);
 }
 
 TEST_CASE("CT unit: at_t", "[ct_unit][helpers]") {
