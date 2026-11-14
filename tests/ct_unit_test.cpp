@@ -286,11 +286,11 @@ TEST_CASE("CT unit: produce_t", "[ct_unit][parser]") {
 TEST_CASE("CT unit: Predict", "[ct_unit][parser]") {
   using P = Progress<"a", 0>;
   // The production goes in front of the remaining sentinels.
-  STATIC_REQUIRE(same<Predict<Start, P, Sen<T_Bar>, Nodes<>>::type,
+  STATIC_REQUIRE(same<predict_t<Start, P, Sen<T_Bar>, Nodes<>>,
                       State<P, Sen<Alt, T_Eot, T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(same<Predict<Amt, P, Sen<T_Bar>, Nodes<>>::type,
+  STATIC_REQUIRE(same<predict_t<Amt, P, Sen<T_Bar>, Nodes<>>,
                       State<P, Sen<T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(same<Predict<Cats, P, Sen<>, Nodes<>>::type,
+  STATIC_REQUIRE(same<predict_t<Cats, P, Sen<>, Nodes<>>,
                       State<P, Sen<A_Reject>, Nodes<>>>);
 }
 
@@ -336,7 +336,7 @@ TEST_CASE("CT unit: Step", "[ct_unit][parser]") {
   STATIC_REQUIRE(same<Step<ParseFailure>::type, ParseFailure>);
 }
 
-TEST_CASE("CT unit: Iter and IterTilFixed", "[ct_unit][parser]") {
+TEST_CASE("CT unit: Iter and IterTilResult", "[ct_unit][parser]") {
   using iterate::iter_t;
   using iterate::Step;
   using S0 = initial_state_t<"a">;
@@ -352,9 +352,9 @@ TEST_CASE("CT unit: Iter and IterTilFixed", "[ct_unit][parser]") {
   STATIC_REQUIRE(same<iter_t<S0, 1>, S2>);
   STATIC_REQUIRE(same<iter_t<S0, 2>, S4>);
 
-  STATIC_REQUIRE(same<IterTilFixed<S0>::type, La>);
-  STATIC_REQUIRE(same<IterTilFixed<La>::type, La>);
-  STATIC_REQUIRE(same<IterTilFixed<ParseFailure>::type, ParseFailure>);
+  STATIC_REQUIRE(same<IterTilResult<S0>::type, La>);
+  STATIC_REQUIRE(same<IterTilResult<La>::type, La>);
+  STATIC_REQUIRE(same<IterTilResult<ParseFailure>::type, ParseFailure>);
 }
 
 TEST_CASE("CT unit: compile_time_regex_t tree shapes", "[ct_unit][parser]") {

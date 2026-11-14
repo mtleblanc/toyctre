@@ -318,10 +318,8 @@ inline constexpr auto table = []() {
   return ret;
 }();
 
-} // namespace detail
-
-using detail::table;
-
+// This could just be a type alias, but it's a small fixed set of instantiations
+// and benchmarking finds making it an alias slower
 template <Symbol nt, Symbol la> struct Produce {
   static constexpr auto production = table[nt][la];
   static constexpr auto body = productions[production].body;
@@ -331,7 +329,11 @@ template <Symbol nt, Symbol la> struct Produce {
   using type = decltype(f<List>(std::make_index_sequence<body.size()>{}));
 };
 
+} // namespace detail
+
+using detail::table;
+
 template <template <Symbol...> class List, Symbol nt, Symbol la>
-using produce_list_t = typename Produce<nt, la>::template type<List>;
+using produce_list_t = typename detail::Produce<nt, la>::template type<List>;
 
 } // namespace toyctre::grammar

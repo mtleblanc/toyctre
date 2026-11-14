@@ -271,10 +271,10 @@ template <Symbol nt, Symbol la>
 using produce_t = grammar::produce_list_t<Sen, nt, la>;
 
 template <Symbol nt, typename P, typename S, typename N>
-struct Predict : Id<State<P, concat_t<produce_t<nt, lex_v<P>>, S>, N>> {};
+using predict_t = State<P, concat_t<produce_t<nt, lex_v<P>>, S>, N>;
 
 } // namespace produce
-using produce::Predict;
+using produce::predict_t;
 using produce::produce_t;
 
 namespace iterate {
@@ -304,7 +304,9 @@ struct Step<State<P, Sen<t, ss...>, N>> : ConsumeTerminal<t, P, Sen<ss...>, N> {
 };
 
 template <typename P, Symbol t, Symbol... ss, typename N>
-struct Step<State<P, Sen<t, ss...>, N>> : Predict<t, P, Sen<ss...>, N> {};
+struct Step<State<P, Sen<t, ss...>, N>> {
+  using type = predict_t<t, P, Sen<ss...>, N>;
+};
 
 template <IsResult R> struct Step<R> : Id<R> {};
 
@@ -322,12 +324,13 @@ template <IsResultOrState S, size_t N>
 struct Iter : Iter<iter_t<S, N - 1>, N - 1> {};
 
 template <IsResultOrState S, size_t N = 0>
-struct IterTilFixed : LazyIf<std::is_same_v<S, iter_t<S, N>>, Id<S>,
-                             IterTilFixed<iter_t<S, N>, N + 1>> {};
+struct IterTilResult : IterTilResult<iter_t<S, N>, N + 1> {};
+
+template <IsResult S, size_t N> struct IterTilResult<S, N> : Id<S> {};
 } // namespace iterate
 
 using iterate::initial_state_t;
-using iterate::IterTilFixed;
+using iterate::IterTilResult;
 
 namespace match {
 
@@ -454,8 +457,8 @@ using detail::ParseFailure;
 using detail::RegexString;
 
 template <RegexString regex>
-struct CompileTimeRegex : detail::IterTilFixed<detail::initial_state_t<regex>> {
-};
+struct CompileTimeRegex
+    : detail::IterTilResult<detail::initial_state_t<regex>> {};
 
 template <RegexString regex>
 using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
