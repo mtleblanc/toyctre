@@ -1,6 +1,7 @@
 #include "toyctre/lib.hpp"
 #include "toyctre/matcher.hpp"
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <initializer_list>

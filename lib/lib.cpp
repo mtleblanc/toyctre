@@ -1,7 +1,7 @@
 #include "toyctre/lib.hpp"
+#include "toyctre/grammar.hpp"
 #include <algorithm>
 #include <array>
-#include <bitset>
 #include <cassert>
 #include <cstddef>
 #include <initializer_list>
@@ -17,223 +17,6 @@
 namespace toyctre {
 namespace detail {
 using std::size_t;
-
-struct Production {
-  Symbol head{};
-  std::vector<Symbol> body;
-
-  constexpr Production(Symbol head, std::vector<Symbol> body)
-      : head{head}, body{std::move(body)} {}
-};
-
-constexpr std::vector<Symbol> operator+(Symbol l, Symbol r) { return {l, r}; };
-constexpr std::vector<Symbol> operator+(std::vector<Symbol> l, Symbol r) {
-  l.push_back(r);
-  return l;
-}
-constexpr Production operator>>=(Symbol head, std::vector<Symbol> body) {
-  return Production{head, std::move(body)};
-}
-constexpr Production operator>>=(Symbol head, Symbol body) {
-  return Production{head, {body}};
-}
-
-constexpr auto productions() {
-  using enum Symbol;
-  const auto epsilon = std::vector<Symbol>{};
-  return std::vector<Production>{
-      A_Reject >>= A_Reject,
-      S >>= A_EAlt + Alt + A_AReg,
-      Alt >>= A_ECat + Cat + A_ACat + Cats,
-      Cats >>= T_Bar + A_ECat + Cat + A_ACat + Cats,
-      Cats >>= epsilon,
-      Cat >>= A_ERep + Unt + Amt + A_ARep + Reps,
-      Reps >>= A_ERep + Unt + Amt + A_ARep + Reps,
-      Reps >>= epsilon,
-      Unt >>= A_RLit + T_Reg,
-      Unt >>= T_Slash + A_REsc + Lit,
-      // TODO: maybe separate out a lexer to avoid this
-      Lit >>= T_Reg,
-      Lit >>= T_Rep,
-      Lit >>= T_LPar,
-      Lit >>= T_RPar,
-      Lit >>= T_Slash,
-      Lit >>= T_Bar,
-      Unt >>= T_LPar + A_EAlt + Alt + A_AGrp + T_RPar,
-      Amt >>= A_RRep + T_Rep,
-      Amt >>= epsilon,
-  };
-}
-
-template <size_t BodySize> struct FixedSizedProduction {
-  template <typename T, size_t N> struct InPlace {
-    std::array<T, N> elems{};
-    size_t used{};
-  };
-  Symbol head{};
-  InPlace<Symbol, BodySize> body_;
-
-  [[nodiscard]] constexpr auto body() const noexcept {
-    return std::span{body_.elems.data(), body_.used};
-  }
-
-  constexpr FixedSizedProduction() = default;
-
-  constexpr FixedSizedProduction(const Production &o) {
-    head = o.head;
-
-    assert(o.body.size() <= BodySize);
-    std::ranges::copy(o.body, body_.elems.begin());
-    body_.used = o.body.size();
-  }
-};
-
-template <size_t ProductionSize, size_t BodySize>
-consteval auto fixedSizedProductions() {
-  auto ret = std::array<FixedSizedProduction<BodySize>, ProductionSize>{};
-  auto prods = productions();
-  assert(prods.size() == ProductionSize);
-  std::ranges::copy(
-      std::views::transform(
-          prods, [](auto &p) { return FixedSizedProduction<BodySize>{p}; }),
-      ret.begin());
-  return ret;
-}
-
-consteval size_t requiredBodySize(const std::vector<Production> &productions) {
-  return std::ranges::max(std::views::transform(
-      productions, [](const auto &p) { return p.body.size(); }));
-}
-} // namespace detail
-
-constexpr auto productions = []() {
-  constexpr auto szs = []() {
-    auto p = detail::productions();
-    return std::make_pair(p.size(), requiredBodySize(p));
-  }();
-  return detail::fixedSizedProductions<szs.first, szs.second>();
-}();
-
-constexpr auto NSymbols = static_cast<size_t>(Symbol::SIZE);
-
-template <typename E, typename V, size_t N> struct EnumIndexedArray {
-  std::array<V, N> elems{};
-
-  template <typename Self> constexpr auto &&operator[](this Self &&self, E e) {
-    return std::forward<Self>(self).elems[static_cast<size_t>(e)];
-  }
-};
-
-constexpr auto table = []() {
-  using LL1Table =
-      EnumIndexedArray<Symbol, EnumIndexedArray<Symbol, size_t, NSymbols>,
-                       NSymbols>;
-  using SetTable =
-      EnumIndexedArray<Symbol, std::bitset<NSymbols + 1>, NSymbols>;
-
-  constexpr auto epsilon = NSymbols;
-  constexpr auto terminals = static_cast<size_t>(Symbol::TERMINALS);
-  constexpr auto actions = static_cast<size_t>(Symbol::ACTIONS);
-  auto ret = LL1Table{};
-  auto firsts = SetTable{};
-  auto changed = false;
-  do {
-    changed = false;
-    for (const auto &p : productions) {
-      auto &fi = firsts[p.head];
-      auto orig = fi;
-      auto setEpsilon = true;
-      for (auto s : p.body()) {
-        if (s > Symbol::ACTIONS) {
-          continue;
-        }
-        if (s > Symbol::TERMINALS) {
-          fi.set(static_cast<size_t>(s));
-          setEpsilon = false;
-          break;
-        }
-        auto o = firsts[s];
-        if (!o.test(epsilon)) {
-          fi |= o;
-          setEpsilon = false;
-          break;
-        }
-        o.reset(epsilon);
-        fi |= o;
-      }
-      if (setEpsilon) {
-        fi.set(epsilon);
-      }
-      changed |= fi != orig;
-    }
-  } while (changed);
-
-  {
-    auto i = terminals;
-    for (; i < actions; ++i) {
-      firsts[static_cast<Symbol>(i)].set(i);
-    }
-    for (; i < NSymbols; ++i) {
-      firsts[static_cast<Symbol>(i)].set(epsilon);
-    }
-  }
-
-  auto first = [&](auto word) {
-    auto fi = std::bitset<epsilon + 1>{};
-    fi.set(epsilon);
-    for (auto s : word) {
-      if (!fi.test(epsilon))
-        break;
-      fi.reset(epsilon);
-      fi |= firsts[s];
-    }
-    return fi;
-  };
-
-  auto follows = SetTable{};
-
-  follows[Symbol::S].set(static_cast<size_t>(Symbol::T_Eot));
-
-  do {
-    changed = false;
-    for (const auto &p : productions) {
-      auto body = p.body();
-      auto &fo_head = follows[p.head];
-      while (body.size()) {
-        auto cur = body.front();
-        auto &fo = follows[cur];
-        auto orig = fo;
-        body = body.subspan(1);
-        auto fi = first(body);
-        fo |= fi;
-        if (fi.test(epsilon)) {
-          fo |= fo_head;
-        }
-        fo.reset(epsilon);
-        changed |= fo != orig;
-      }
-    }
-  } while (changed);
-
-  for (auto pi = 0uz; pi < productions.size(); ++pi) {
-    const auto &p = productions[pi];
-    auto fi = first(p.body());
-    if (fi.test(epsilon)) {
-      fi |= follows[p.head];
-    }
-
-    for (auto i = terminals + 1; i < actions; ++i) {
-      if (fi.test(i)) {
-        auto &entry = ret[p.head][static_cast<Symbol>(i)];
-        if (entry != 0 && entry != pi) {
-          throw "LL1 conflict";
-        }
-        entry = pi;
-      }
-    }
-  }
-  return ret;
-}();
 
 struct Sym {
   Symbol symbol;
@@ -252,7 +35,7 @@ constexpr auto classify(char c) {
   case '?':
     return Symbol::T_Rep;
   case '\\':
-    return Symbol::T_Slash;
+    return Symbol::T_Esc;
   case '|':
     return Symbol::T_Bar;
   default:
@@ -262,7 +45,8 @@ constexpr auto classify(char c) {
 
 constexpr auto lex(char c) -> Sym { return {.symbol = classify(c), .c = c}; }
 
-using Node = std::variant<Regex, Alternative, Concatenation, Repetition>;
+struct Mark {};
+using Node = std::variant<Regex, Alternative, Concatenation, Repetition, Mark>;
 
 constexpr ParseResult parse(std::string_view regex) {
   using enum Symbol;
@@ -271,73 +55,65 @@ constexpr ParseResult parse(std::string_view regex) {
                 return i < std::ssize(regex) ? lex(regex[i]) : Sym{T_Eot, 0};
               });
   auto it = syms.begin();
-  auto sentinels = std::vector<Symbol>{S};
+  auto sentinels = std::vector<Symbol>{Start};
   auto nodes = std::vector<Node>{};
-  nodes.emplace_back(std::in_place_type<Regex>);
   while (!sentinels.empty()) {
     auto cur = sentinels.back();
     sentinels.pop_back();
-    if (cur > ACTIONS) {
+    if (cur > Actions_) {
       switch (cur) {
-      case (A_EAlt): {
-        nodes.emplace_back(std::in_place_type<Alternative>);
+      case A_Mark: {
+        nodes.emplace_back(Mark{});
         break;
       }
-      case A_AReg: {
-        auto alt = std::move(std::get<Alternative>(nodes.back()));
+      case A_Alts: {
+        auto node = Alternative{};
+        while (std::holds_alternative<Concatenation>(nodes.back())) {
+          node.concatenations.insert(
+              node.concatenations.begin(),
+              std::move(std::get<Concatenation>(nodes.back())));
+          nodes.pop_back();
+        }
+        assert(std::holds_alternative<Mark>(nodes.back()));
         nodes.pop_back();
-        auto &reg = std::get<Regex>(nodes.back());
-        reg.alternative = std::move(alt);
+        nodes.emplace_back(std::move(node));
         break;
       }
-      case A_AGrp: {
-        auto alt = std::move(std::get<Alternative>(nodes.back()));
+      case A_Cats: {
+        auto node = Concatenation{};
+        while (std::holds_alternative<Repetition>(nodes.back())) {
+          node.repetitions.insert(
+              node.repetitions.begin(),
+              std::move(std::get<Repetition>(nodes.back())));
+          nodes.pop_back();
+        }
+        assert(std::holds_alternative<Mark>(nodes.back()));
         nodes.pop_back();
-        auto &unt = std::get<Repetition>(nodes.back());
-        unt.altenative = std::move(alt);
-        unt.isNested = true;
+        nodes.emplace_back(std::move(node));
         break;
       }
-      case A_ECat: {
-        nodes.emplace_back(std::in_place_type<Concatenation>);
-        break;
-      }
-      case A_ACat: {
-        auto cat = std::move(std::get<Concatenation>(nodes.back()));
+      case A_Group: {
+        auto node = Repetition{std::move(std::get<Alternative>(nodes.back())),
+                               0, true, false};
         nodes.pop_back();
-        auto &alt = std::get<Alternative>(nodes.back());
-        alt.concatenations.push_back(std::move(cat));
+        nodes.emplace_back(std::move(node));
         break;
       }
-      case A_ERep: {
-        nodes.emplace_back(std::in_place_type<Repetition>);
+      case A_Lit: {
+        auto node = Repetition{{}, (*it).c, false, false};
+        nodes.emplace_back(std::move(node));
         break;
       }
-      case A_ARep: {
-        auto rep = std::move(std::get<Repetition>(nodes.back()));
-        nodes.pop_back();
-        auto &cat = std::get<Concatenation>(nodes.back());
-        cat.repetitions.push_back(std::move(rep));
-        break;
+      case A_Esc: {
+        auto node = Repetition{{}, (*it).c, false, true};
+        nodes.emplace_back(std::move(node));
         break;
       }
-      case A_REsc: {
-        auto &unit = std::get<Repetition>(nodes.back());
-        unit.literal = (*it).c;
-        unit.wasEscaped = true;
+      case A_Rep: {
+        auto &node = std::get<Repetition>(nodes.back());
+        node.rep = (*it).c;
         break;
       }
-      case A_RLit: {
-        auto &unit = std::get<Repetition>(nodes.back());
-        unit.literal = (*it).c;
-        break;
-      }
-      case A_RRep: {
-        auto &rep = std::get<Repetition>(nodes.back());
-        rep.rep = (*it).c;
-        break;
-      }
-
       case A_Reject: {
         return {{}, false};
       }
@@ -345,14 +121,14 @@ constexpr ParseResult parse(std::string_view regex) {
         std::unreachable();
       }
 
-    } else if (cur > TERMINALS) {
+    } else if (cur > Terminals_) {
       if (*it != cur) {
         return {{}, false};
       }
       ++it;
     } else {
-      auto rule = table[cur][(*it).symbol];
-      auto body = productions[rule].body();
+      auto rule = grammar::table[cur][(*it).symbol];
+      auto body = grammar::productions[rule].body;
       std::copy(body.crbegin(), body.crend(), std::back_inserter(sentinels));
     }
   }
@@ -361,9 +137,10 @@ constexpr ParseResult parse(std::string_view regex) {
     return {{}, false};
   }
 
-  return {std::move(std::get<Regex>(nodes.back())), true};
+  return {{std::move(std::get<Alternative>(nodes.back()))}, true};
 }
+} // namespace detail
 
-ParseResult parseRegex(std::string_view regex) { return parse(regex); }
+ParseResult parseRegex(std ::string_view regex) { return detail::parse(regex); }
 
 } // namespace toyctre
