@@ -6,7 +6,6 @@
 #include <concepts>
 #include <cstddef>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 
 namespace toyctre::compile_time {
@@ -25,15 +24,6 @@ template <typename T, typename F> struct LazyIf<false, T, F> {
 template <typename T> struct Id {
   using type = T;
 };
-
-template <typename, typename> struct Concat;
-template <typename T, template <T...> class List, T... As, T... Bs>
-struct Concat<List<As...>, List<Bs...>> : Id<List<As..., Bs...>> {};
-template <template <typename...> class List, typename... Ts, typename... Us>
-struct Concat<List<Ts...>, List<Us...>> : Id<List<Ts..., Us...>> {};
-
-template <typename ListA, typename ListB>
-using concat_t = typename Concat<ListA, ListB>::type;
 
 template <typename, typename> struct Push;
 template <typename T, template <typename...> class List, typename... Ts>
@@ -66,7 +56,6 @@ using at_t = typename decltype(pick<I>(
 namespace detail {
 using grammar::Symbol;
 using helpers::at_t;
-using helpers::concat_t;
 using helpers::head_t;
 using helpers::Id;
 using helpers::LazyIf;
@@ -143,7 +132,9 @@ using progress::Progress;
 
 namespace state {
 
-template <Symbol...> struct Sen {};
+template <Symbol... ss> struct Sen {
+  template <Symbol... tt> using append = Sen<ss..., tt...>;
+};
 template <typename S> inline constexpr auto is_sentinels_v = false;
 template <Symbol... ss> inline constexpr auto is_sentinels_v<Sen<ss...>> = true;
 template <typename S>
@@ -270,8 +261,9 @@ using enum Symbol;
 template <Symbol nt, Symbol la>
 using produce_t = grammar::produce_list_t<Sen, nt, la>;
 
-template <Symbol nt, typename P, typename S, typename N>
-using predict_t = State<P, concat_t<produce_t<nt, lex_v<P>>, S>, N>;
+template <Symbol nt, typename P, typename N, Symbol... ss>
+using predict_t =
+    State<P, typename produce_t<nt, lex_v<P>>::template append<ss...>, N>;
 
 } // namespace produce
 using produce::predict_t;
@@ -305,7 +297,7 @@ struct Step<State<P, Sen<t, ss...>, N>> : ConsumeTerminal<t, P, Sen<ss...>, N> {
 
 template <typename P, Symbol t, Symbol... ss, typename N>
 struct Step<State<P, Sen<t, ss...>, N>> {
-  using type = predict_t<t, P, Sen<ss...>, N>;
+  using type = predict_t<t, P, N, ss...>;
 };
 
 template <IsResult R> struct Step<R> : Id<R> {};

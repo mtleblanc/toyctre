@@ -6,7 +6,9 @@
 - [ ] Allow empty groups and empty alternatives
 - [ ] Revisit star normalization and auto-possessification
 - [ ] Compile time performance
-  - [ ] Have iterate end on IsRegex/ParseFailure instead of at fixed point
+  - [x] Have iterate end on IsRegex/ParseFailure instead of at fixed point
   - [ ] Replace types with aliases where possible
+    - [x] predict_t
+    - [x] concat_t in predict_t - sentinels already deduced, reuse
   - [ ] Use packs instead of recursion where possible
 

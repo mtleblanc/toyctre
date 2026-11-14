@@ -49,14 +49,6 @@ TEST_CASE("CT unit: Id and LazyIf", "[ct_unit][helpers]") {
 }
 
 TEST_CASE("CT unit: Type list helpers", "[ct_unit][helpers]") {
-  // Concat on type lists and on value lists (Sen<Symbol...>).
-  STATIC_REQUIRE(
-      same<concat_t<Nodes<int>, Nodes<char, long>>, Nodes<int, char, long>>);
-  STATIC_REQUIRE(same<concat_t<Nodes<>, Nodes<>>, Nodes<>>);
-  STATIC_REQUIRE(
-      same<concat_t<Sen<Alt, T_Eot>, Sen<T_Bar>>, Sen<Alt, T_Eot, T_Bar>>);
-  STATIC_REQUIRE(same<concat_t<Sen<>, Sen<T_Bar>>, Sen<T_Bar>>);
-
   STATIC_REQUIRE(same<helpers::push_t<int, Nodes<char>>, Nodes<int, char>>);
   STATIC_REQUIRE(same<helpers::push_t<int, Nodes<>>, Nodes<int>>);
 
@@ -286,12 +278,12 @@ TEST_CASE("CT unit: produce_t", "[ct_unit][parser]") {
 TEST_CASE("CT unit: Predict", "[ct_unit][parser]") {
   using P = Progress<"a", 0>;
   // The production goes in front of the remaining sentinels.
-  STATIC_REQUIRE(same<predict_t<Start, P, Sen<T_Bar>, Nodes<>>,
+  STATIC_REQUIRE(same<predict_t<Start, P, Nodes<>, T_Bar>,
                       State<P, Sen<Alt, T_Eot, T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(same<predict_t<Amt, P, Sen<T_Bar>, Nodes<>>,
-                      State<P, Sen<T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(same<predict_t<Cats, P, Sen<>, Nodes<>>,
-                      State<P, Sen<A_Reject>, Nodes<>>>);
+  STATIC_REQUIRE(
+      same<predict_t<Amt, P, Nodes<>, T_Bar>, State<P, Sen<T_Bar>, Nodes<>>>);
+  STATIC_REQUIRE(
+      same<predict_t<Cats, P, Nodes<>>, State<P, Sen<A_Reject>, Nodes<>>>);
 }
 
 // ---------------------------------------------------------------------------
