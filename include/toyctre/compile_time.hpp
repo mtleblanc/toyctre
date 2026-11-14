@@ -5,7 +5,6 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -87,43 +86,22 @@ template <typename T> inline constexpr auto is_regex_v = false;
 template <typename T>
 concept IsRegex = is_regex_v<T>;
 
-template <IsRegex R> struct Group {
-  static constexpr std::string toString() {
-    return std::string{"("} + R::toString() + ')';
-  }
-};
+template <IsRegex R> struct Group {};
 template <typename R> inline constexpr auto is_regex_v<Group<R>> = true;
 
-template <IsRegex... Ns> struct Sequence {
-  static constexpr std::string toString() { return (Ns::toString() + ...); }
-};
+template <IsRegex... Ns> struct Sequence {};
 template <typename... Ns>
 inline constexpr auto is_regex_v<Sequence<Ns...>> = true;
 
-template <IsRegex... Ns> struct Alternatives {
-  static constexpr std::string toString() {
-    std::string res = ((Ns::toString() + "|") + ...);
-    return res.substr(0, res.size() - 1);
-  }
-};
+template <IsRegex... Ns> struct Alternatives {};
 template <typename... Ns>
 inline constexpr auto is_regex_v<Alternatives<Ns...>> = true;
 
-template <IsRegex R, char r> struct Repetition {
-  static constexpr std::string toString() { return R::toString() + r; }
-};
+template <IsRegex R, char r> struct Repetition {};
 template <typename R, char r>
 inline constexpr auto is_regex_v<Repetition<R, r>> = true;
 
-template <bool e, char c> struct Literal {
-  static constexpr std::string toString() {
-    if constexpr (e) {
-      return std::string{'\\', c};
-    } else {
-      return std::string{c};
-    }
-  }
-};
+template <bool e, char c> struct Literal {};
 template <bool e, char c>
 inline constexpr auto is_regex_v<Literal<e, c>> = true;
 
@@ -472,7 +450,6 @@ using match::Matcher;
 } // namespace detail
 
 using detail::IsRegex;
-using detail::Matcher;
 using detail::ParseFailure;
 using detail::RegexString;
 
@@ -486,7 +463,7 @@ using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
 template <RegexString regex> constexpr bool match(std::string_view text) {
   using Regex = compile_time_regex_t<regex>;
   if constexpr (IsRegex<Regex>) {
-    return Matcher<Regex>::match(text);
+    return detail::Matcher<Regex>::match(text);
   } else {
     static_assert(IsRegex<Regex>, "failed to parse regex");
     return false;

@@ -1,0 +1,8 @@
+   Deduplicate grammar
+   Runtime/Compiletime drift
+   Capture groups
+   Merge Sequence<Literal...> into a literal string node
+   Character classes
+   Allow empty groups and empty alternatives
+   Revisit star normalization and auto-possessification
+   Compile time performance

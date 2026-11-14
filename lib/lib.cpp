@@ -364,33 +364,6 @@ constexpr ParseResult parse(std::string_view regex) {
   return {std::move(std::get<Regex>(nodes.back())), true};
 }
 
-std::string Repetition::toString() const {
-  return (this->isNested
-              ? "(" + this->altenative.toString() + ")"
-              : (this->wasEscaped ? "\\" : "") + std::string{this->literal}) +
-         (this->rep != 0 ? std::string{this->rep} : "");
-}
-
-std::string Concatenation::toString() const {
-  return std::ranges::fold_left_first(
-             this->repetitions | std::views::transform([](const auto &r) {
-               return r.toString();
-             }),
-             [](auto l, auto r) { return l += r; })
-      .value();
-}
-
-std::string Alternative::toString() const {
-
-  return std::ranges::fold_left_first(
-             this->concatenations | std::views::transform([](const auto &r) {
-               return r.toString();
-             }),
-             [](auto l, auto r) { return (l += "|") += r; })
-      .value();
-}
-
-std::string Regex::toString() const { return this->alternative.toString(); }
-
 ParseResult parseRegex(std::string_view regex) { return parse(regex); }
+
 } // namespace toyctre

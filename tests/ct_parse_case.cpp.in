@@ -5,11 +5,7 @@
 
 #include "toyctre/compile_time.hpp"
 
-#include <algorithm>
-#include <array>
 #include <concepts>
-#include <cstddef>
-#include <string>
 
 #cmakedefine01 CT_EXPECT_REJECT
 
@@ -26,25 +22,4 @@ static_assert(std::same_as<Result, ParseFailure>,
               "expected regex to be rejected");
 #else
 static_assert(IsRegex<Result>, "expected regex to be accepted");
-
-constexpr auto regex = R"__re__(@CT_REGEX@)__re__";
-
-// static_assert with a computed message (C++26 P2741, enabled in C++23 mode
-// via -Wno-c++26-extensions in ct_parser_cases.cmake). A std::string can't
-// outlive constant evaluation, so copy the message into a fixed-size buffer.
-template <auto F> constexpr auto frozen() {
-  constexpr auto N = F().size();
-  struct Msg {
-    std::array<char, N> buf{};
-    constexpr const char *data() const { return buf.data(); }
-    constexpr std::size_t size() const { return N; }
-  } m;
-  std::ranges::copy(F(), m.buf.begin());
-  return m;
-}
-
-static_assert(Result::toString() == regex, frozen<[] {
-                return "round trip mismatch: got '" + Result::toString() +
-                       "', expected '" + std::string{regex} + "'";
-              }>());
 #endif

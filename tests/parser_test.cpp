@@ -25,7 +25,6 @@ void checkAccepts(std::initializer_list<std::string_view> regexes) {
     CAPTURE(re);
     auto res = parseRegex(re);
     CHECK(res.accepted);
-    CHECK(re == res.regex.toString());
   }
 }
 

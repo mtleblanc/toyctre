@@ -154,20 +154,6 @@ TEST_CASE("CT unit: is_regex_v", "[ct_unit][parse_tree]") {
   STATIC_REQUIRE(!IsRegex<Nodes<La>>);
 }
 
-TEST_CASE("CT unit: toString", "[ct_unit][parse_tree]") {
-  STATIC_REQUIRE(La::toString() == "a");
-  STATIC_REQUIRE(EscStar::toString() == "\\*");
-  STATIC_REQUIRE(Group<La>::toString() == "(a)");
-  STATIC_REQUIRE(Sequence<La, Lb, Lc>::toString() == "abc");
-  STATIC_REQUIRE(Alternatives<La, Lb, Lc>::toString() == "a|b|c");
-  STATIC_REQUIRE(Repetition<La, '*'>::toString() == "a*");
-  STATIC_REQUIRE(Repetition<La, '?'>::toString() == "a?");
-  STATIC_REQUIRE(Repetition<La, '+'>::toString() == "a+");
-  STATIC_REQUIRE(
-      Alternatives<Sequence<La, Lb>, Repetition<Group<Lc>, '*'>>::toString() ==
-      "ab|(c)*");
-}
-
 // ---------------------------------------------------------------------------
 // State concepts
 // ---------------------------------------------------------------------------

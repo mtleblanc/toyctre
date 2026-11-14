@@ -19,8 +19,6 @@ file(MAKE_DIRECTORY ${CT_PARSE_DIR})
 set(CT_COMMON_FLAGS
   -std=c++${CMAKE_CXX_STANDARD}
   -Wall -Wextra -Wpedantic -Werror
-  # static_assert with a computed message (C++26) is used in C++23 mode.
-  -Wno-c++26-extensions
 )
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   list(APPEND CT_COMMON_FLAGS -fmax-errors=1)
