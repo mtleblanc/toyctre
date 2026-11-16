@@ -1,4 +1,5 @@
 #include "ct_matcher_helpers.hpp"
+#include "toyctre/compile_time.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -35,15 +36,15 @@ using namespace ct_test;
 // ---------------------------------------------------------------------------
 
 TEST_CASE("CT: Usable in constant expressions", "[ct_matcher][constexpr]") {
-  STATIC_CHECK(compile_time::match<"abc">("abc"));
-  STATIC_CHECK_FALSE(compile_time::match<"abc">("abd"));
-  STATIC_CHECK(compile_time::match<"a|b">("b"));
-  STATIC_CHECK_FALSE(compile_time::match<"a|b">("ab"));
-  STATIC_CHECK(compile_time::match<"ab*c">("abbbc"));
-  STATIC_CHECK(compile_time::match<"a+">("aaa"));
-  STATIC_CHECK_FALSE(compile_time::match<"a+">(""));
-  STATIC_CHECK(compile_time::match<"ab?">("a"));
-  STATIC_CHECK(compile_time::match<R"re(a\*)re">("a*"));
+  STATIC_CHECK(compile_time::match<"abc">("abc").success);
+  STATIC_CHECK_FALSE(compile_time::match<"abc">("abd").success);
+  STATIC_CHECK(compile_time::match<"a|b">("b").success);
+  STATIC_CHECK_FALSE(compile_time::match<"a|b">("ab").success);
+  STATIC_CHECK(compile_time::match<"ab*c">("abbbc").success);
+  STATIC_CHECK(compile_time::match<"a+">("aaa").success);
+  STATIC_CHECK_FALSE(compile_time::match<"a+">("").success);
+  STATIC_CHECK(compile_time::match<"ab?">("a").success);
+  STATIC_CHECK(compile_time::match<R"re(a\*)re">("a*").success);
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <stdexcept>
 #include <type_traits>
 
 namespace toyctre::compile_time::detail {
@@ -104,6 +105,20 @@ TEST_CASE("CT unit: Progress", "[ct_unit][progress]") {
 
   // The empty regex is at EOT immediately.
   STATIC_REQUIRE(IsEot<Progress<"", 0>>);
+}
+
+TEST_CASE("CT unit: Progress::capture_number_v", "[ct_unit][progress]") {
+  // The number of unescaped '(' before position N.
+  STATIC_REQUIRE(Progress<"a(b)", 0>::capture_number_v == 0);
+  STATIC_REQUIRE(Progress<"a(b)", 1>::capture_number_v == 0);
+  STATIC_REQUIRE(Progress<"a(b)", 2>::capture_number_v == 1);
+  STATIC_REQUIRE(Progress<"a(b)", 4>::capture_number_v == 1);
+  STATIC_REQUIRE(Progress<"((a)(b))", 2>::capture_number_v == 2);
+  STATIC_REQUIRE(Progress<"((a)(b))", 5>::capture_number_v == 3);
+  STATIC_REQUIRE(Progress<"", 0>::capture_number_v == 0);
+  // An escaped paren isn't counted, but one after an escaped backslash is.
+  STATIC_REQUIRE(Progress<R"re(\()re", 2>::capture_number_v == 0);
+  STATIC_REQUIRE(Progress<R"re(\\()re", 3>::capture_number_v == 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -407,22 +422,112 @@ TEST_CASE("CT unit: star_normal_t", "[ct_unit][matcher]") {
 TEST_CASE("CT unit: Matcher with explicit continuations",
           "[ct_unit][matcher]") {
   // The pack is the node plus everything that must match after it.
-  STATIC_REQUIRE(Matcher<>::match<0>(""));
-  STATIC_REQUIRE(!Matcher<>::match<0>("a"));
-  STATIC_REQUIRE(Matcher<La>::match<0>("a"));
-  STATIC_REQUIRE(Matcher<La, Lb>::match<0>("ab"));
-  STATIC_REQUIRE(!Matcher<La, Lb>::match<0>("a"));
+  int captureData;
+  STATIC_REQUIRE(CapturingMatcher<int>::Matcher<>::match("", captureData));
+  STATIC_REQUIRE(!CapturingMatcher<int>::Matcher<>::match("a", captureData));
+  STATIC_REQUIRE(CapturingMatcher<int>::Matcher<La>::match("a", captureData));
+  STATIC_REQUIRE(
+      CapturingMatcher<int>::Matcher<La, Lb>::match("ab", captureData));
+  STATIC_REQUIRE(
+      !CapturingMatcher<int>::Matcher<La, Lb>::match("a", captureData));
   // Repetition gives back characters to the continuation.
-  STATIC_REQUIRE(Matcher<Repetition<La, '*'>, La>::match<0>("aaa"));
-  STATIC_REQUIRE(!Matcher<Repetition<La, '+'>, La>::match<0>("a"));
+  STATIC_REQUIRE(CapturingMatcher<int>::Matcher<Repetition<La, '*'>, La>::match(
+      "aaa", captureData));
+  STATIC_REQUIRE(
+      !CapturingMatcher<int>::Matcher<Repetition<La, '+'>, La>::match(
+          "a", captureData));
   // Alternatives backtrack into the continuation.
   STATIC_REQUIRE(
-      Matcher<Alternatives<La, Sequence<La, Lb>>, Lb>::match<0>("ab"));
+      CapturingMatcher<int>::Matcher<Alternatives<La, Sequence<La, Lb>>,
+                                     Lb>::match("ab", captureData));
   STATIC_REQUIRE(
-      Matcher<Alternatives<La, Sequence<La, Lb>>, Lb>::match<0>("abb"));
+      CapturingMatcher<int>::Matcher<Alternatives<La, Sequence<La, Lb>>,
+                                     Lb>::match("abb", captureData));
   // Empty-matching loop body terminates.
-  STATIC_REQUIRE(Matcher<Repetition<Repetition<La, '?'>, '*'>>::match<0>("aa"));
-  STATIC_REQUIRE(Matcher<Repetition<Repetition<La, '?'>, '*'>>::match<0>(""));
+  STATIC_REQUIRE(
+      CapturingMatcher<int>::Matcher<
+          Repetition<Repetition<La, '?'>, '*'>>::match("aa", captureData));
+  STATIC_REQUIRE(CapturingMatcher<int>::Matcher<
+                 Repetition<Repetition<La, '?'>, '*'>>::match("", captureData));
+}
+
+TEST_CASE("CT unit: CaptureData", "[ct_unit][matcher]") {
+  // Groups are numbered from 1, and start out zeroed.
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    return d.groupStart(1) == 0 && d.groupEnd(1) == 0;
+  }());
+  // Each group's start and end are separate slots.
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<2>{};
+    d.groupStart(1) = 10;
+    d.groupEnd(1) = 11;
+    d.groupStart(2) = 20;
+    d.groupEnd(2) = 21;
+    return d.groupStart(1) == 10 && d.groupEnd(1) == 11 &&
+           d.groupStart(2) == 20 && d.groupEnd(2) == 21;
+  }());
+
+  auto d = CaptureData<1>{};
+  CHECK_THROWS_AS(d.groupStart(0), std::out_of_range);
+  CHECK_THROWS_AS(d.groupEnd(0), std::out_of_range);
+  CHECK_THROWS_AS(d.groupStart(2), std::out_of_range);
+  CHECK_THROWS_AS(d.groupEnd(2), std::out_of_range);
+}
+
+TEST_CASE("CT unit: Group and EndGroup matchers", "[ct_unit][matcher]") {
+  using M = CapturingMatcher<CaptureData<1>>;
+  using match::EndGroup;
+
+  // Positions are recorded as the length of the text remaining.
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    return M::Matcher<La, Group<Lb, 1>, Lc>::match("abc", d) &&
+           d.groupStart(1) == 2 && d.groupEnd(1) == 1;
+  }());
+  // EndGroup records only the end.
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    return M::Matcher<La, EndGroup<1>, Lb>::match("ab", d) &&
+           d.groupStart(1) == 0 && d.groupEnd(1) == 1;
+  }());
+  // A group matching the empty string has start == end.
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    return M::Matcher<La, Group<Repetition<Lb, '*'>, 1>>::match("a", d) &&
+           d.groupStart(1) == 0 && d.groupEnd(1) == 0;
+  }());
+
+  // When the match fails, the previous values are restored...
+  // ...if the group's contents fail,
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    d.groupStart(1) = 7;
+    d.groupEnd(1) = 8;
+    return !M::Matcher<Group<Lb, 1>>::match("a", d) && d.groupStart(1) == 7 &&
+           d.groupEnd(1) == 8;
+  }());
+  // ...or what follows the group fails.
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    d.groupStart(1) = 7;
+    d.groupEnd(1) = 8;
+    return !M::Matcher<Group<La, 1>, Lc>::match("ab", d) &&
+           d.groupStart(1) == 7 && d.groupEnd(1) == 8;
+  }());
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    d.groupEnd(1) = 8;
+    return !M::Matcher<EndGroup<1>, Lc>::match("a", d) && d.groupEnd(1) == 8;
+  }());
+
+  // A failed first alternative leaves nothing behind for the second.
+  STATIC_REQUIRE([] {
+    auto d = CaptureData<1>{};
+    return M::Matcher<Alternatives<Sequence<Group<La, 1>, Lb>,
+                                   Sequence<La, Lc>>>::match("ac", d) &&
+           d.groupStart(1) == 0 && d.groupEnd(1) == 0;
+  }());
 }
 
 } // namespace

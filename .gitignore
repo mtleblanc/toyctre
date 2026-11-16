@@ -1,3 +1,4 @@
 build/
 .cache
 .toygit
+compile_commands.json
