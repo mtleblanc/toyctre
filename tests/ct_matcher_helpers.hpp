@@ -25,8 +25,7 @@ namespace toyctre::ct_test {
 using compile_time::RegexString;
 
 template <RegexString re> constexpr std::string_view patternOf() {
-  // RegexString stores the trailing NUL.
-  return {re.data, re.size() - 1};
+  return {re.data, re.size()};
 }
 
 template <RegexString re>

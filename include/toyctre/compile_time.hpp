@@ -34,10 +34,16 @@ using grammar::Symbol;
 using helpers::at_t;
 using std::size_t;
 
-template <size_t N> struct RegexString {
+// zero sized arrays are an extension, but even in standard the requires gives
+// an error message early
+template <size_t N>
+  requires(N > 0)
+struct RegexString {
   constexpr RegexString(const char (&str)[N]) { std::copy_n(str, N, data); }
   char data[N];
-  constexpr auto size() const { return N; }
+  // we store the null because it gets indexed, but don't report it as part of
+  // the size
+  constexpr auto size() const { return N - 1; }
 };
 
 namespace parse_tree {
@@ -77,8 +83,8 @@ using parse_tree::Sequence;
 namespace progress {
 
 template <RegexString r, size_t N> struct Progress {
-  static_assert(N < r.size(), "Progress advanced past end of string");
-  static constexpr auto at_eot = N + 1 == r.size();
+  static_assert(N <= r.size(), "Progress advanced past end of string");
+  static constexpr auto at_eot = N == r.size();
   static constexpr auto current_char = r.data[N];
   using next = Progress<r, N + 1>;
   static constexpr auto capture_number_v = [] {
@@ -407,59 +413,77 @@ template <typename R, char r>
 struct StarNormal<Repetition<R, r>> : StarNormal<R> {};
 
 template <> struct Matcher<> {
-  static constexpr auto match(std::string_view text) -> bool {
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
     return text.empty();
   }
 };
 
 template <bool e, char c, typename... Rs> struct Matcher<Literal<e, c>, Rs...> {
-  static constexpr auto match(std::string_view text) -> bool {
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
     if (text.empty() || text.front() != c)
       return false;
-    return Matcher<Rs...>::match(text.substr(1));
+    return Matcher<Rs...>::template match<G>(text.substr(1));
   }
 };
 
 template <typename... Ras, typename... Rbs>
 struct Matcher<Sequence<Ras...>, Rbs...> {
-  static constexpr auto match(std::string_view text) -> bool {
-    return Matcher<Ras..., Rbs...>::match(text);
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
+    return Matcher<Ras..., Rbs...>::template match<G>(text);
   }
 };
 
 template <typename... Ras, typename... Rbs>
 struct Matcher<Alternatives<Ras...>, Rbs...> {
-  static constexpr auto match(std::string_view text) -> bool {
-    return (Matcher<Ras, Rbs...>::match(text) || ...);
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
+    return (Matcher<Ras, Rbs...>::template match<G>(text) || ...);
   }
 };
 
 template <typename R, size_t C, typename... Rs>
 struct Matcher<Group<R, C>, Rs...> {
-  static constexpr auto match(std::string_view text) -> bool {
-    return Matcher<R, Rs...>::match(text);
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
+    return Matcher<R, Rs...>::template match<G>(text);
   }
 };
 
 template <typename R, typename... Rs>
 struct Matcher<Repetition<R, '?'>, Rs...> {
-  static constexpr auto match(std::string_view text) -> bool {
-    return Matcher<R, Rs...>::match(text) || Matcher<Rs...>::match(text);
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
+    return Matcher<R, Rs...>::template match<G>(text) ||
+           Matcher<Rs...>::template match<G>(text);
   }
 };
 
 template <typename R, typename... Rs>
 struct Matcher<Repetition<R, '*'>, Rs...> {
-  static constexpr auto match(std::string_view text) -> bool {
-    return Matcher<star_normal_t<R>, Repetition<R, '*'>, Rs...>::match(text) ||
-           Matcher<Rs...>::match(text);
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
+    return Matcher<star_normal_t<R>, Repetition<R, '*'>,
+                   Rs...>::template match<G>(text) ||
+           Matcher<Rs...>::template match<G>(text);
   }
 };
 
 template <typename R, typename... Rs>
 struct Matcher<Repetition<R, '+'>, Rs...> {
-  static constexpr auto match(std::string_view text) -> bool {
-    return Matcher<R, Repetition<R, '*'>, Rs...>::match(text);
+  template <size_t G>
+  static constexpr auto match(std::string_view text,
+                              std::array<size_t, 2 * G> = {}) -> bool {
+    return Matcher<R, Repetition<R, '*'>, Rs...>::template match<G>(text);
   }
 };
 
@@ -481,8 +505,10 @@ using compile_time_regex_t = typename CompileTimeRegex<regex>::type;
 
 template <RegexString regex> constexpr bool match(std::string_view text) {
   using Regex = compile_time_regex_t<regex>;
+  [[maybe_unused]] constexpr auto groups =
+      detail::Progress<regex, regex.size()>::capture_number_v;
   if constexpr (IsRegex<Regex>) {
-    return detail::Matcher<Regex>::match(text);
+    return detail::Matcher<Regex>::template match<groups>(text);
   } else {
     static_assert(IsRegex<Regex>, "failed to parse regex");
     return false;

@@ -16,7 +16,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <string_view>
 #include <type_traits>
 
 namespace toyctre::compile_time::detail {
@@ -58,8 +57,8 @@ TEST_CASE("CT unit: at_t", "[ct_unit][helpers]") {
 
 TEST_CASE("CT unit: RegexString", "[ct_unit][progress]") {
   constexpr auto s = RegexString{"ab"};
-  // The trailing NUL is stored and counted.
-  STATIC_REQUIRE(s.size() == 3);
+  // The trailing NUL is stored but not counted.
+  STATIC_REQUIRE(s.size() == 2);
   STATIC_REQUIRE(s.data[0] == 'a');
   STATIC_REQUIRE(s.data[1] == 'b');
   STATIC_REQUIRE(s.data[2] == '\0');
@@ -408,20 +407,22 @@ TEST_CASE("CT unit: star_normal_t", "[ct_unit][matcher]") {
 TEST_CASE("CT unit: Matcher with explicit continuations",
           "[ct_unit][matcher]") {
   // The pack is the node plus everything that must match after it.
-  STATIC_REQUIRE(Matcher<>::match(""));
-  STATIC_REQUIRE(!Matcher<>::match("a"));
-  STATIC_REQUIRE(Matcher<La>::match("a"));
-  STATIC_REQUIRE(Matcher<La, Lb>::match("ab"));
-  STATIC_REQUIRE(!Matcher<La, Lb>::match("a"));
+  STATIC_REQUIRE(Matcher<>::match<0>(""));
+  STATIC_REQUIRE(!Matcher<>::match<0>("a"));
+  STATIC_REQUIRE(Matcher<La>::match<0>("a"));
+  STATIC_REQUIRE(Matcher<La, Lb>::match<0>("ab"));
+  STATIC_REQUIRE(!Matcher<La, Lb>::match<0>("a"));
   // Repetition gives back characters to the continuation.
-  STATIC_REQUIRE(Matcher<Repetition<La, '*'>, La>::match("aaa"));
-  STATIC_REQUIRE(!Matcher<Repetition<La, '+'>, La>::match("a"));
+  STATIC_REQUIRE(Matcher<Repetition<La, '*'>, La>::match<0>("aaa"));
+  STATIC_REQUIRE(!Matcher<Repetition<La, '+'>, La>::match<0>("a"));
   // Alternatives backtrack into the continuation.
-  STATIC_REQUIRE(Matcher<Alternatives<La, Sequence<La, Lb>>, Lb>::match("ab"));
-  STATIC_REQUIRE(Matcher<Alternatives<La, Sequence<La, Lb>>, Lb>::match("abb"));
+  STATIC_REQUIRE(
+      Matcher<Alternatives<La, Sequence<La, Lb>>, Lb>::match<0>("ab"));
+  STATIC_REQUIRE(
+      Matcher<Alternatives<La, Sequence<La, Lb>>, Lb>::match<0>("abb"));
   // Empty-matching loop body terminates.
-  STATIC_REQUIRE(Matcher<Repetition<Repetition<La, '?'>, '*'>>::match("aa"));
-  STATIC_REQUIRE(Matcher<Repetition<Repetition<La, '?'>, '*'>>::match(""));
+  STATIC_REQUIRE(Matcher<Repetition<Repetition<La, '?'>, '*'>>::match<0>("aa"));
+  STATIC_REQUIRE(Matcher<Repetition<Repetition<La, '?'>, '*'>>::match<0>(""));
 }
 
 } // namespace
