@@ -65,9 +65,9 @@ template <IsRegex... Ns> struct Alternatives {};
 template <typename... Ns>
 inline constexpr auto is_regex_v<Alternatives<Ns...>> = true;
 
-template <IsRegex R, char r> struct Repetition {};
-template <typename R, char r>
-inline constexpr auto is_regex_v<Repetition<R, r>> = true;
+template <IsRegex R, char r, size_t C> struct Repetition {};
+template <typename R, char r, size_t C>
+inline constexpr auto is_regex_v<Repetition<R, r, C>> = true;
 
 template <bool e, char c> struct Literal {};
 template <bool e, char c>
@@ -94,6 +94,17 @@ template <RegexString r, size_t N> struct Progress {
       if (r.data[i] == '\\') {
         ++i;
       } else if (r.data[i] == '(') {
+        ++ret;
+      }
+    }
+    return ret;
+  }();
+  static constexpr auto repetition_number_v = [] {
+    auto ret = 0uz;
+    for (auto i = 0uz; i < N; ++i) {
+      if (r.data[i] == '\\') {
+        ++i;
+      } else if (r.data[i] == '+' || r.data[i] == '*') {
         ++ret;
       }
     }
@@ -251,13 +262,16 @@ template <char c, typename... Rs> struct NextNodes<A_Lit, c, Nodes<Rs...>> {
 template <char c, typename... Rs> struct NextNodes<A_Esc, c, Nodes<Rs...>> {
   using type = Nodes<Literal<true, c>, Rs...>;
 };
-template <char c, typename R, typename... Rs>
-struct NextNodes<A_Rep, c, Nodes<R, Rs...>> {
-  using type = Nodes<Repetition<R, c>, Rs...>;
-};
 
 template <Symbol a, typename P, typename S, typename N> struct DoAction {
   using type = State<P, S, next_nodes_t<a, P::current_char, N>>;
+};
+
+template <typename P, typename S, typename R, typename... Rs>
+struct DoAction<A_Rep, P, S, Nodes<R, Rs...>> {
+  using type = State<
+      P, S,
+      Nodes<Repetition<R, P::current_char, P::repetition_number_v>, Rs...>>;
 };
 
 template <typename P, typename S, typename... Rs>
@@ -351,87 +365,39 @@ using iterate::IterTilResult;
 
 namespace match {
 
-template <typename> struct StarNormal {
-  static_assert(false, "Missing StarNormal case");
-};
-template <typename R> using star_normal_t = typename StarNormal<R>::type;
-
-template <typename R>
-inline constexpr auto is_nullable_v = []() {
-  static_assert(false, "Missing nullable check");
-  return false;
-}();
-
-template <bool e, char c>
-inline constexpr auto is_nullable_v<Literal<e, c>> = false;
-
-template <typename... Rs>
-inline constexpr auto is_nullable_v<Sequence<Rs...>> =
-    (is_nullable_v<Rs> && ...);
-
-template <typename... Rs>
-inline constexpr auto is_nullable_v<Alternatives<Rs...>> =
-    (is_nullable_v<Rs> || ...);
-
-template <typename R, size_t C>
-inline constexpr auto is_nullable_v<Group<R, C>> = is_nullable_v<R>;
-
-template <typename R>
-inline constexpr auto is_nullable_v<Repetition<R, '*'>> = true;
-
-template <typename R>
-inline constexpr auto is_nullable_v<Repetition<R, '?'>> = true;
-
-template <typename R>
-inline constexpr auto is_nullable_v<Repetition<R, '+'>> = is_nullable_v<R>;
-
-template <bool e, char c> struct StarNormal<Literal<e, c>> {
-  using type = Literal<e, c>;
-};
-
-template <typename... Rs>
-  requires(is_nullable_v<Rs> && ...)
-struct StarNormal<Sequence<Rs...>> {
-  using type = Alternatives<star_normal_t<Rs>...>;
-};
-
-template <typename... Rs> struct StarNormal<Sequence<Rs...>> {
-  using type = Sequence<Rs...>;
-};
-
-template <typename... Rs> struct StarNormal<Alternatives<Rs...>> {
-  using type = Alternatives<star_normal_t<Rs>...>;
-};
-
-template <typename R, size_t C>
-struct StarNormal<Group<R, C>> : StarNormal<R> {};
-
-template <typename R, char r>
-struct StarNormal<Repetition<R, r>> : StarNormal<R> {};
-
-template <size_t N> class CaptureData {
-  std::array<size_t, 2 * N> data{};
+template <size_t Groups, size_t Repetitions> class CaptureData {
+  static constexpr auto RepStart = 2 * Groups + 2;
+  std::array<size_t, RepStart + Repetitions> data{};
+  size_t repIndex = RepStart;
 
 public:
   constexpr CaptureData() = default;
-  // group indexing starts at 1
+  // group indexing starts at 1 (0 is whole match, currently unused)
   constexpr auto &groupStart(size_t i) {
-    if (i > N || i == 0) {
+    if (i > Groups || i == 0) {
       throw std::out_of_range{"Invalid group index"};
     }
     return data[2 * i - 2];
   }
   constexpr auto &groupEnd(size_t i) {
-    if (i > N || i == 0) {
+    if (i > Groups || i == 0) {
       throw std::out_of_range{"Invalid group index"};
     }
     return data[2 * i - 1];
+  }
+
+  // Repetition indexing starts at 0
+  constexpr auto &repStart(size_t i) {
+    if (i >= Repetitions) {
+      throw std::out_of_range{"Invalid repetition index"};
+    }
+    return data[RepStart + i];
   }
 };
 
 template <size_t C> struct EndGroup;
 
-template <typename CaptureData> struct CapturingMatcher {
+template <typename Data> struct CapturingMatcher {
   template <typename...> struct Matcher {
     static_assert(false, "Missing matcher case");
   };
@@ -440,45 +406,41 @@ template <typename CaptureData> struct CapturingMatcher {
   template <typename... Rs>
     requires(sizeof...(Rs) == 0)
   struct Matcher<Rs...> {
-    static constexpr auto match(std::string_view text, CaptureData &) -> bool {
+    static constexpr auto match(std::string_view text, Data &) -> bool {
       return text.empty();
     }
   };
 
   template <bool e, char c, typename... Rs>
   struct Matcher<Literal<e, c>, Rs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
       if (text.empty() || text.front() != c)
         return false;
-      return Matcher<Rs...>::match(text.substr(1), captures);
+      return Matcher<Rs...>::match(text.substr(1), data);
     }
   };
 
   template <typename... Ras, typename... Rbs>
   struct Matcher<Sequence<Ras...>, Rbs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
-      return Matcher<Ras..., Rbs...>::match(text, captures);
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      return Matcher<Ras..., Rbs...>::match(text, data);
     }
   };
 
   template <typename... Ras, typename... Rbs>
   struct Matcher<Alternatives<Ras...>, Rbs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
-      return (Matcher<Ras, Rbs...>::match(text, captures) || ...);
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      return (Matcher<Ras, Rbs...>::match(text, data) || ...);
     }
   };
 
   template <typename R, size_t C, typename... Rs>
   struct Matcher<Group<R, C>, Rs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
-      auto &ref = captures.groupStart(C);
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      auto &ref = data.groupStart(C);
       auto orig = ref;
       ref = text.size();
-      auto res = Matcher<R, EndGroup<C>, Rs...>::match(text, captures);
+      auto res = Matcher<R, EndGroup<C>, Rs...>::match(text, data);
       if (!res) {
         ref = orig;
       }
@@ -487,12 +449,11 @@ template <typename CaptureData> struct CapturingMatcher {
   };
 
   template <size_t C, typename... Rs> struct Matcher<EndGroup<C>, Rs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
-      auto &ref = captures.groupEnd(C);
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      auto &ref = data.groupEnd(C);
       auto orig = ref;
       ref = text.size();
-      auto res = Matcher<Rs...>::match(text, captures);
+      auto res = Matcher<Rs...>::match(text, data);
       if (!res) {
         ref = orig;
       }
@@ -500,30 +461,36 @@ template <typename CaptureData> struct CapturingMatcher {
     }
   };
 
-  template <typename R, typename... Rs>
-  struct Matcher<Repetition<R, '?'>, Rs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
-      return Matcher<R, Rs...>::match(text, captures) ||
-             Matcher<Rs...>::match(text, captures);
+  template <typename R, size_t C, typename... Rs>
+  struct Matcher<Repetition<R, '?', C>, Rs...> {
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      return Matcher<R, Rs...>::match(text, data) ||
+             Matcher<Rs...>::match(text, data);
     }
   };
 
-  template <typename R, typename... Rs>
-  struct Matcher<Repetition<R, '*'>, Rs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
-      return Matcher<star_normal_t<R>, Repetition<R, '*'>, Rs...>::match(
-                 text, captures) ||
-             Matcher<Rs...>::match(text, captures);
+  template <typename R, size_t C, typename... Rs>
+  struct Matcher<Repetition<R, '*', C>, Rs...> {
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      if (text.empty()) {
+        return Matcher<Rs...>::match(text, data);
+      }
+      auto &ref = data.repStart(C);
+      if (ref == text.size()) {
+        return false;
+      }
+      auto orig = ref;
+      ref = text.size();
+      auto first = Matcher<R, Repetition<R, '*', C>, Rs...>::match(text, data);
+      ref = orig;
+      return first || Matcher<Rs...>::match(text, data);
     }
   };
 
-  template <typename R, typename... Rs>
-  struct Matcher<Repetition<R, '+'>, Rs...> {
-    static constexpr auto match(std::string_view text, CaptureData &captures)
-        -> bool {
-      return Matcher<R, Repetition<R, '*'>, Rs...>::match(text, captures);
+  template <typename R, size_t C, typename... Rs>
+  struct Matcher<Repetition<R, '+', C>, Rs...> {
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      return Matcher<R, Repetition<R, '*', C>, Rs...>::match(text, data);
     }
   };
 };
@@ -558,9 +525,10 @@ template <size_t N> struct MatchResult {
 
 template <RegexString regex> constexpr auto match(std::string_view text) {
   using Regex = compile_time_regex_t<regex>;
-  constexpr auto groups =
-      detail::Progress<regex, regex.size()>::capture_number_v;
-  using CaptureData = detail::CaptureData<groups>;
+  using P = detail::Progress<regex, regex.size()>;
+  constexpr auto groups = P::capture_number_v;
+  constexpr auto repetitions = P::repetition_number_v;
+  using CaptureData = detail::CaptureData<groups, repetitions>;
   using Matcher =
       detail::CapturingMatcher<CaptureData>::template Matcher<Regex>;
   using Ret = MatchResult<groups + 1>;
