@@ -114,11 +114,11 @@ TEST_CASE("CT unit: Progress", "[ct_unit][progress]") {
 TEST_CASE("CT unit: is_regex_v", "[ct_unit][parse_tree]") {
   STATIC_REQUIRE(IsRegex<La>);
   STATIC_REQUIRE(IsRegex<EscStar>);
-  STATIC_REQUIRE(IsRegex<Group<La>>);
+  STATIC_REQUIRE(IsRegex<Group<La, 1>>);
   STATIC_REQUIRE(IsRegex<Sequence<La, Lb>>);
   STATIC_REQUIRE(IsRegex<Alternatives<La, Lb>>);
   STATIC_REQUIRE(IsRegex<Repetition<La, '*'>>);
-  STATIC_REQUIRE(IsRegex<Repetition<Group<Sequence<La, Lb>>, '+'>>);
+  STATIC_REQUIRE(IsRegex<Repetition<Group<Sequence<La, Lb>, 1>, '+'>>);
 
   STATIC_REQUIRE(!IsRegex<int>);
   STATIC_REQUIRE(!IsRegex<Mark>);
@@ -212,8 +212,9 @@ TEST_CASE("CT unit: NextNodes", "[ct_unit][parser]") {
   STATIC_REQUIRE(same<next_nodes_t<A_Esc, '*', Nodes<>>, Nodes<EscStar>>);
   STATIC_REQUIRE(same<next_nodes_t<A_Rep, '+', Nodes<La, Mark>>,
                       Nodes<Repetition<La, '+'>, Mark>>);
-  STATIC_REQUIRE(same<next_nodes_t<A_Group, 'x', Nodes<La, Mark>>,
-                      Nodes<Group<La>, Mark>>);
+  STATIC_REQUIRE(
+      same<next_nodes_t<A_Group, 'x', Nodes<La, CaptureMark<1>, Mark>>,
+           Nodes<Group<La, 1>, Mark>>);
   STATIC_REQUIRE(same<next_nodes_t<A_Cats, 'x', Nodes<Lb, La, Mark>>,
                       Nodes<Sequence<La, Lb>>>);
   STATIC_REQUIRE(same<next_nodes_t<A_Alts, 'x', Nodes<Lb, La, Mark>>,
@@ -240,8 +241,8 @@ TEST_CASE("CT unit: produce_t", "[ct_unit][parser]") {
       same<produce_t<Alt, T_LPar>, Sentinels<A_Mark, Cat, Cats, A_Alts>>);
   STATIC_REQUIRE(same<produce_t<Cats, T_Bar>, Sentinels<T_Bar, Cat, Cats>>);
   STATIC_REQUIRE(same<produce_t<Cats, T_Eot>, Sentinels<>>);
-  STATIC_REQUIRE(
-      same<produce_t<Unt, T_LPar>, Sentinels<T_LPar, Alt, A_Group, T_RPar>>);
+  STATIC_REQUIRE(same<produce_t<Unt, T_LPar>,
+                      Sentinels<T_LPar, A_Capture, Alt, A_Group, T_RPar>>);
   STATIC_REQUIRE(same<produce_t<Unt, T_Esc>, Sentinels<T_Esc, A_Esc, Lit>>);
   STATIC_REQUIRE(same<produce_t<Amt, T_Rep>, Sentinels<A_Rep, T_Rep>>);
   STATIC_REQUIRE(same<produce_t<Amt, T_Reg>, Sentinels<>>);
@@ -261,14 +262,11 @@ TEST_CASE("CT unit: produce_t", "[ct_unit][parser]") {
 }
 
 TEST_CASE("CT unit: Predict", "[ct_unit][parser]") {
-  using P = Progress<"a", 0>;
   // The production goes in front of the remaining sentinels.
-  STATIC_REQUIRE(same<predict_t<Start, P, Nodes<>, T_Bar>,
-                      State<P, Sentinels<Alt, T_Eot, T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(same<predict_t<Amt, P, Nodes<>, T_Bar>,
-                      State<P, Sentinels<T_Bar>, Nodes<>>>);
-  STATIC_REQUIRE(same<predict_t<Cats, P, Nodes<>>,
-                      State<P, Sentinels<A_Reject>, Nodes<>>>);
+  STATIC_REQUIRE(
+      same<predict_t<Start, T_Reg, T_Bar>, Sentinels<Alt, T_Eot, T_Bar>>);
+  STATIC_REQUIRE(same<predict_t<Amt, T_Reg, T_Bar>, Sentinels<T_Bar>>);
+  STATIC_REQUIRE(same<predict_t<Cats, T_Reg>, Sentinels<A_Reject>>);
 }
 
 // ---------------------------------------------------------------------------
@@ -342,9 +340,12 @@ TEST_CASE("CT unit: compile_time_regex_t tree shapes", "[ct_unit][parser]") {
   STATIC_REQUIRE(same<compile_time_regex_t<"a|b">, Alternatives<La, Lb>>);
   STATIC_REQUIRE(
       same<compile_time_regex_t<"a|bc">, Alternatives<La, Sequence<Lb, Lc>>>);
-  STATIC_REQUIRE(same<compile_time_regex_t<"(a)">, Group<La>>);
+  STATIC_REQUIRE(same<compile_time_regex_t<"(a)">, Group<La, 1>>);
+  STATIC_REQUIRE(same<compile_time_regex_t<"(a)(b)">,
+                      Sequence<Group<La, 1>, Group<Lb, 2>>>);
+  STATIC_REQUIRE(same<compile_time_regex_t<"((a))">, Group<Group<La, 2>, 1>>);
   STATIC_REQUIRE(same<compile_time_regex_t<"(ab)*">,
-                      Repetition<Group<Sequence<La, Lb>>, '*'>>);
+                      Repetition<Group<Sequence<La, Lb>, 1>, '*'>>);
   STATIC_REQUIRE(
       same<compile_time_regex_t<"ab+">, Sequence<La, Repetition<Lb, '+'>>>);
   STATIC_REQUIRE(same<compile_time_regex_t<R"(\*)">, EscStar>);
@@ -364,8 +365,8 @@ TEST_CASE("CT unit: is_nullable_v", "[ct_unit][matcher]") {
   STATIC_REQUIRE(is_nullable_v<Repetition<La, '?'>>);
   STATIC_REQUIRE(!is_nullable_v<Repetition<La, '+'>>);
   STATIC_REQUIRE(is_nullable_v<Repetition<Repetition<La, '?'>, '+'>>);
-  STATIC_REQUIRE(!is_nullable_v<Group<La>>);
-  STATIC_REQUIRE(is_nullable_v<Group<Repetition<La, '*'>>>);
+  STATIC_REQUIRE(!is_nullable_v<Group<La, 1>>);
+  STATIC_REQUIRE(is_nullable_v<Group<Repetition<La, '*'>, 1>>);
 
   // Sequence: all children nullable. Alternatives: any child nullable.
   STATIC_REQUIRE(!is_nullable_v<Sequence<La, Repetition<Lb, '*'>>>);
@@ -387,7 +388,7 @@ TEST_CASE("CT unit: star_normal_t", "[ct_unit][matcher]") {
   // Repetitions and groups are stripped down to their (normalized) body.
   STATIC_REQUIRE(same<star_normal_t<AStar>, La>);
   STATIC_REQUIRE(same<star_normal_t<Repetition<La, '+'>>, La>);
-  STATIC_REQUIRE(same<star_normal_t<Group<AStar>>, La>);
+  STATIC_REQUIRE(same<star_normal_t<Group<AStar, 1>>, La>);
   // A nullable sequence becomes the alternatives of its normalized parts.
   STATIC_REQUIRE(
       same<star_normal_t<Sequence<AStar, BOpt>>, Alternatives<La, Lb>>);
@@ -399,8 +400,9 @@ TEST_CASE("CT unit: star_normal_t", "[ct_unit][matcher]") {
   STATIC_REQUIRE(!is_nullable_v<star_normal_t<AStar>>);
   STATIC_REQUIRE(!is_nullable_v<star_normal_t<Sequence<AStar, BOpt>>>);
   STATIC_REQUIRE(!is_nullable_v<star_normal_t<Alternatives<AStar, BOpt>>>);
-  STATIC_REQUIRE(!is_nullable_v<
-                 star_normal_t<Sequence<Repetition<Group<BOpt>, '+'>, AStar>>>);
+  STATIC_REQUIRE(
+      !is_nullable_v<
+          star_normal_t<Sequence<Repetition<Group<BOpt, 1>, '+'>, AStar>>>);
 }
 
 TEST_CASE("CT unit: Matcher with explicit continuations",

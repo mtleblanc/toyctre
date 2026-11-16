@@ -36,6 +36,7 @@ enum class Symbol {
   A_Mark,
   A_Alts,
   A_Cats,
+  A_Capture,
   A_Group,
   A_Lit,
   A_Esc,
@@ -109,7 +110,7 @@ consteval auto dynamicProductions() {
       Lit >>= T_RPar,
       Lit >>= T_Esc,
       Lit >>= T_Bar,
-      Unt >>= T_LPar + Alt + A_Group + T_RPar,
+      Unt >>= T_LPar + A_Capture + Alt + A_Group + T_RPar,
       Amt >>= A_Rep + T_Rep,
       Amt >>= epsilon,
   };

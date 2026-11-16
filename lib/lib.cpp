@@ -92,6 +92,9 @@ constexpr ParseResult parse(std::string_view regex) {
         nodes.emplace_back(std::move(node));
         break;
       }
+      case A_Capture: {
+        break;
+      }
       case A_Group: {
         auto node = Repetition{std::move(std::get<Alternative>(nodes.back())),
                                0, true, false};

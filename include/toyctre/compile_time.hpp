@@ -46,8 +46,9 @@ template <typename T> inline constexpr auto is_regex_v = false;
 template <typename T>
 concept IsRegex = is_regex_v<T>;
 
-template <IsRegex R> struct Group {};
-template <typename R> inline constexpr auto is_regex_v<Group<R>> = true;
+template <IsRegex R, size_t C> struct Group {};
+template <typename R, size_t C>
+inline constexpr auto is_regex_v<Group<R, C>> = true;
 
 template <IsRegex... Ns> struct Sequence {};
 template <typename... Ns>
@@ -80,6 +81,17 @@ template <RegexString r, size_t N> struct Progress {
   static constexpr auto at_eot = N + 1 == r.size();
   static constexpr auto current_char = r.data[N];
   using next = Progress<r, N + 1>;
+  static constexpr auto capture_number_v = [] {
+    auto ret = 0uz;
+    for (auto i = 0uz; i < N; ++i) {
+      if (r.data[i] == '\\') {
+        ++i;
+      } else if (r.data[i] == '(') {
+        ++ret;
+      }
+    }
+    return ret;
+  }();
 };
 
 template <typename P> inline constexpr auto is_progress_v = false;
@@ -112,9 +124,10 @@ inline constexpr auto is_sentinels_v<Sentinels<ss...>> = true;
 template <typename S>
 concept IsSentinels = is_sentinels_v<S>;
 
-struct Mark {};
+struct Mark;
+template <size_t> struct CaptureMark;
 
-template <typename...> struct Nodes {};
+template <typename...> struct Nodes;
 template <typename N> inline constexpr auto is_nodes_v = false;
 template <typename... Ns> inline constexpr auto is_nodes_v<Nodes<Ns...>> = true;
 template <typename N>
@@ -139,6 +152,7 @@ template <typename T>
 concept IsResultOrState = IsResult<T> || IsState<T>;
 
 } // namespace state
+using state::CaptureMark;
 using state::IsNodes;
 using state::IsResult;
 using state::IsResultOrState;
@@ -215,11 +229,13 @@ template <char c, typename... Rs> struct NextNodes<A_Mark, c, Nodes<Rs...>> {
 
 template <char c, typename N>
 struct NextNodes<A_Alts, c, N> : Merge<Alternatives, N> {};
+
 template <char c, typename N>
 struct NextNodes<A_Cats, c, N> : Merge<Sequence, N> {};
-template <char c, typename R, typename... Rs>
-struct NextNodes<A_Group, c, Nodes<R, Rs...>> {
-  using type = Nodes<Group<R>, Rs...>;
+
+template <char c, typename R, typename... Rs, size_t C>
+struct NextNodes<A_Group, c, Nodes<R, CaptureMark<C>, Rs...>> {
+  using type = Nodes<Group<R, C>, Rs...>;
 };
 
 template <char c, typename... Rs> struct NextNodes<A_Lit, c, Nodes<Rs...>> {
@@ -236,6 +252,12 @@ struct NextNodes<A_Rep, c, Nodes<R, Rs...>> {
 template <Symbol a, typename P, typename S, typename N> struct DoAction {
   using type = State<P, S, next_nodes_t<a, P::current_char, N>>;
 };
+
+template <typename P, typename S, typename... Rs>
+struct DoAction<A_Capture, P, S, Nodes<Rs...>> {
+  using type = State<P, S, Nodes<CaptureMark<P::capture_number_v>, Rs...>>;
+};
+
 template <typename P, typename S, typename N>
 struct DoAction<A_Reject, P, S, N> {
   using type = ParseFailure;
@@ -250,9 +272,8 @@ using enum Symbol;
 template <Symbol nt, Symbol la>
 using produce_t = grammar::produce_list_t<Sentinels, nt, la>;
 
-template <Symbol nt, typename P, typename N, Symbol... ss>
-using predict_t =
-    State<P, typename produce_t<nt, lex_v<P>>::template append<ss...>, N>;
+template <Symbol nt, Symbol p, Symbol... ss>
+using predict_t = typename produce_t<nt, p>::template append<ss...>;
 
 } // namespace produce
 using produce::predict_t;
@@ -289,7 +310,7 @@ struct Step<State<P, Sentinels<t, ss...>, N>>
 
 template <typename P, Symbol t, Symbol... ss, typename N>
 struct Step<State<P, Sentinels<t, ss...>, N>> {
-  using type = predict_t<t, P, N, ss...>;
+  using type = State<P, predict_t<t, lex_v<P>, ss...>, N>;
 };
 
 template <IsResult R> struct Step<R> {
@@ -349,8 +370,8 @@ template <typename... Rs>
 inline constexpr auto is_nullable_v<Alternatives<Rs...>> =
     (is_nullable_v<Rs> || ...);
 
-template <typename R>
-inline constexpr auto is_nullable_v<Group<R>> = is_nullable_v<R>;
+template <typename R, size_t C>
+inline constexpr auto is_nullable_v<Group<R, C>> = is_nullable_v<R>;
 
 template <typename R>
 inline constexpr auto is_nullable_v<Repetition<R, '*'>> = true;
@@ -379,7 +400,8 @@ template <typename... Rs> struct StarNormal<Alternatives<Rs...>> {
   using type = Alternatives<star_normal_t<Rs>...>;
 };
 
-template <typename R> struct StarNormal<Group<R>> : StarNormal<R> {};
+template <typename R, size_t C>
+struct StarNormal<Group<R, C>> : StarNormal<R> {};
 
 template <typename R, char r>
 struct StarNormal<Repetition<R, r>> : StarNormal<R> {};
@@ -412,7 +434,8 @@ struct Matcher<Alternatives<Ras...>, Rbs...> {
   }
 };
 
-template <typename R, typename... Rs> struct Matcher<Group<R>, Rs...> {
+template <typename R, size_t C, typename... Rs>
+struct Matcher<Group<R, C>, Rs...> {
   static constexpr auto match(std::string_view text) -> bool {
     return Matcher<R, Rs...>::match(text);
   }
