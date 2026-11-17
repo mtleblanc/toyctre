@@ -55,18 +55,6 @@ template <RegexString r, size_t N> struct Progress {
     }
     return ret;
   }();
-
-  static constexpr auto repetition_number_v = [] {
-    auto ret = 0uz;
-    for (auto i = 0uz; i < N; ++i) {
-      if (r.data[i] == '\\') {
-        ++i;
-      } else if (r.data[i] == '+' || r.data[i] == '*') {
-        ++ret;
-      }
-    }
-    return ret;
-  }();
 };
 
 template <typename T>
@@ -189,9 +177,7 @@ template <Symbol a, typename P, typename S, typename N> struct DoAction {
 
 template <typename P, typename S, typename R, typename... Rs>
 struct DoAction<A_Rep, P, S, Nodes<R, Rs...>> {
-  using type = State<
-      P, S,
-      Nodes<Repetition<R, P::current_char_v, P::repetition_number_v>, Rs...>>;
+  using type = State<P, S, Nodes<Repetition<R, P::current_char_v>, Rs...>>;
 };
 
 template <typename P, typename S, typename... Rs>

@@ -19,10 +19,10 @@ using iterate::IterTilResult;
 
 namespace match {
 
-template <size_t Groups, size_t Repetitions> class CaptureData {
+template <size_t Groups> class CaptureData {
   static constexpr auto RepStart = 2 * Groups + 2;
-  std::array<size_t, RepStart + Repetitions> data{};
-  size_t repIndex = RepStart;
+  std::array<size_t, RepStart> data{};
+  size_t rep{};
 
 public:
   constexpr CaptureData() = default;
@@ -41,17 +41,13 @@ public:
   }
 
   // Repetition indexing starts at 0
-  constexpr auto &repStart(size_t i) {
-    if (i >= Repetitions) {
-      throw std::out_of_range{"Invalid repetition index"};
-    }
-    return data[RepStart + i];
-  }
+  constexpr auto &repStart() { return rep; }
 };
 
 template <size_t C> struct EndGroup;
 
 template <typename Data> struct CapturingMatcher {
+  template <typename> struct ProgressedRepetition;
   template <typename...> struct Matcher {
     static_assert(false, "Missing matcher case");
   };
@@ -115,36 +111,50 @@ template <typename Data> struct CapturingMatcher {
     }
   };
 
-  template <typename R, size_t C, typename... Rs>
-  struct Matcher<Repetition<R, '?', C>, Rs...> {
+  template <typename R, typename... Rs>
+  struct Matcher<Repetition<R, '?'>, Rs...> {
     static constexpr auto match(std::string_view text, Data &data) -> bool {
       return Matcher<R, Rs...>::match(text, data) ||
              Matcher<Rs...>::match(text, data);
     }
   };
 
-  template <typename R, size_t C, typename... Rs>
-  struct Matcher<Repetition<R, '*', C>, Rs...> {
+  template <typename R, typename... Rs>
+  struct Matcher<Repetition<R, '*'>, Rs...> {
     static constexpr auto match(std::string_view text, Data &data) -> bool {
       if (text.empty()) {
         return Matcher<Rs...>::match(text, data);
       }
-      auto &ref = data.repStart(C);
-      if (ref == text.size()) {
-        return false;
-      }
+      auto &ref = data.repStart();
       auto orig = ref;
       ref = text.size();
-      auto first = Matcher<R, Repetition<R, '*', C>, Rs...>::match(text, data);
+      auto first =
+          Matcher<R, ProgressedRepetition<R>, Rs...>::match(text, data);
       ref = orig;
       return first || Matcher<Rs...>::match(text, data);
     }
   };
 
-  template <typename R, size_t C, typename... Rs>
-  struct Matcher<Repetition<R, '+', C>, Rs...> {
+  template <typename R, typename... Rs>
+  struct Matcher<ProgressedRepetition<R>, Rs...> {
     static constexpr auto match(std::string_view text, Data &data) -> bool {
-      return Matcher<R, Repetition<R, '*', C>, Rs...>::match(text, data);
+      auto &ref = data.repStart();
+      if (ref == text.size()) {
+        return false;
+      }
+      auto orig = ref;
+      ref = text.size();
+      auto first =
+          Matcher<R, ProgressedRepetition<R>, Rs...>::match(text, data);
+      ref = orig;
+      return first || Matcher<Rs...>::match(text, data);
+    }
+  };
+
+  template <typename R, typename... Rs>
+  struct Matcher<Repetition<R, '+'>, Rs...> {
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      return Matcher<R, Repetition<R, '*'>, Rs...>::match(text, data);
     }
   };
 };
@@ -179,8 +189,7 @@ template <RegexString regex> constexpr auto match(std::string_view text) {
   using Regex = compile_time_regex_t<regex>;
   using P = progress::Progress<regex, regex.size()>;
   constexpr auto groups = P::capture_number_v;
-  constexpr auto repetitions = P::repetition_number_v;
-  using CaptureData = detail::CaptureData<groups, repetitions>;
+  using CaptureData = detail::CaptureData<groups>;
   using Matcher =
       detail::CapturingMatcher<CaptureData>::template Matcher<Regex>;
   using Ret = MatchResult<groups + 1>;

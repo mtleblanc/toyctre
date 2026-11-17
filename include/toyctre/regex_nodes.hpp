@@ -21,9 +21,9 @@ template <IsRegex... Ns> struct Alternatives {};
 template <typename... Ns>
 inline constexpr auto is_regex_v<Alternatives<Ns...>> = true;
 
-template <IsRegex R, char r, size_t C> struct Repetition {};
-template <typename R, char r, size_t C>
-inline constexpr auto is_regex_v<Repetition<R, r, C>> = true;
+template <IsRegex R, char r> struct Repetition {};
+template <typename R, char r>
+inline constexpr auto is_regex_v<Repetition<R, r>> = true;
 
 template <bool e, char c> struct Literal {};
 template <bool e, char c>
