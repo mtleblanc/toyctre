@@ -3,7 +3,7 @@
 #include "toyctre/grammar.hpp"
 #include <string_view>
 #include <vector>
-namespace toyctre {
+namespace re {
 using grammar::Symbol;
 
 struct Repetition;
@@ -35,4 +35,4 @@ struct ParseResult {
 
 ParseResult parseRegex(std ::string_view regex);
 
-} // namespace toyctre
+} // namespace re

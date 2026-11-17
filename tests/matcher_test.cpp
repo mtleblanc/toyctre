@@ -18,7 +18,7 @@
 // Each TEST_CASE is a separate ctest entry, so a crash in one category
 // doesn't hide results from the others.
 
-namespace toyctre {
+namespace re {
 namespace {
 
 using namespace std::string_view_literals;
@@ -339,4 +339,4 @@ TEST_CASE("Pathological for backtracking", "[matcher][stress]") {
   }
 }
 
-} // namespace toyctre
+} // namespace re

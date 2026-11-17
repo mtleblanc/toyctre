@@ -1,364 +1,18 @@
 #pragma once
 
-#include "toyctre/grammar.hpp"
-#include <algorithm>
+#include "toyctre/ct_base.hpp"
+#include "toyctre/ct_parse.hpp"
+#include "toyctre/regex_nodes.hpp"
 #include <array>
-#include <concepts>
 #include <cstddef>
 #include <stdexcept>
 #include <string_view>
-#include <utility>
 
-namespace toyctre::compile_time {
-
-namespace helpers {
-using std::size_t;
-
-template <typename T> struct Id {
-  using type = T;
-};
-
-template <size_t, typename> struct Indexed {};
-template <typename, typename...> struct IndexedAll;
-template <size_t... Is, typename... Ts>
-struct IndexedAll<std::index_sequence<Is...>, Ts...> : Indexed<Is, Ts>... {};
-
-template <size_t I, typename T> Id<T> pick(Indexed<I, T>);
-template <size_t I, typename... Ts>
-using at_t = typename decltype(pick<I>(
-    IndexedAll<std::index_sequence_for<Ts...>, Ts...>{}))::type;
-
-} // namespace helpers
+namespace re::ct {
 
 namespace detail {
-using grammar::Symbol;
-using helpers::at_t;
+using namespace ctn;
 using std::size_t;
-
-// zero sized arrays are an extension, but even in standard the requires gives
-// an error message early
-template <size_t N>
-  requires(N > 0)
-struct RegexString {
-  constexpr RegexString(const char (&str)[N]) { std::copy_n(str, N, data); }
-  char data[N];
-  // we store the null because it gets indexed, but don't report it as part of
-  // the size
-  constexpr auto size() const { return N - 1; }
-};
-
-namespace parse_tree {
-
-template <typename T> inline constexpr auto is_regex_v = false;
-template <typename T>
-concept IsRegex = is_regex_v<T>;
-
-template <IsRegex R, size_t C> struct Group {};
-template <typename R, size_t C>
-inline constexpr auto is_regex_v<Group<R, C>> = true;
-
-template <IsRegex... Ns> struct Sequence {};
-template <typename... Ns>
-inline constexpr auto is_regex_v<Sequence<Ns...>> = true;
-
-template <IsRegex... Ns> struct Alternatives {};
-template <typename... Ns>
-inline constexpr auto is_regex_v<Alternatives<Ns...>> = true;
-
-template <IsRegex R, char r, size_t C> struct Repetition {};
-template <typename R, char r, size_t C>
-inline constexpr auto is_regex_v<Repetition<R, r, C>> = true;
-
-template <bool e, char c> struct Literal {};
-template <bool e, char c>
-inline constexpr auto is_regex_v<Literal<e, c>> = true;
-
-} // namespace parse_tree
-using parse_tree::Alternatives;
-using parse_tree::Group;
-using parse_tree::IsRegex;
-using parse_tree::Literal;
-using parse_tree::Repetition;
-using parse_tree::Sequence;
-
-namespace progress {
-
-template <RegexString r, size_t N> struct Progress {
-  static_assert(N <= r.size(), "Progress advanced past end of string");
-  static constexpr auto at_eot = N == r.size();
-  static constexpr auto current_char = r.data[N];
-  using next = Progress<r, N + 1>;
-  static constexpr auto capture_number_v = [] {
-    auto ret = 0uz;
-    for (auto i = 0uz; i < N; ++i) {
-      if (r.data[i] == '\\') {
-        ++i;
-      } else if (r.data[i] == '(') {
-        ++ret;
-      }
-    }
-    return ret;
-  }();
-  static constexpr auto repetition_number_v = [] {
-    auto ret = 0uz;
-    for (auto i = 0uz; i < N; ++i) {
-      if (r.data[i] == '\\') {
-        ++i;
-      } else if (r.data[i] == '+' || r.data[i] == '*') {
-        ++ret;
-      }
-    }
-    return ret;
-  }();
-};
-
-template <typename P> inline constexpr auto is_progress_v = false;
-template <RegexString r, size_t N>
-inline constexpr auto is_progress_v<Progress<r, N>> = true;
-template <typename P>
-concept IsProgress = is_progress_v<P>;
-
-template <typename T>
-concept IsEot = IsProgress<T> && T::at_eot;
-
-template <IsProgress P>
-inline constexpr auto lex_v =
-    P::at_eot ? Symbol::T_Eot : grammar::lexChar(P::current_char);
-
-} // namespace progress
-using progress::IsEot;
-using progress::IsProgress;
-using progress::lex_v;
-using progress::Progress;
-
-namespace state {
-
-template <Symbol... ss> struct Sentinels {
-  template <Symbol... tt> using append = Sentinels<ss..., tt...>;
-};
-template <typename S> inline constexpr auto is_sentinels_v = false;
-template <Symbol... ss>
-inline constexpr auto is_sentinels_v<Sentinels<ss...>> = true;
-template <typename S>
-concept IsSentinels = is_sentinels_v<S>;
-
-struct Mark;
-template <size_t> struct CaptureMark;
-
-template <typename...> struct Nodes;
-template <typename N> inline constexpr auto is_nodes_v = false;
-template <typename... Ns> inline constexpr auto is_nodes_v<Nodes<Ns...>> = true;
-template <typename N>
-concept IsNodes = is_nodes_v<N>;
-
-template <IsProgress, IsSentinels, IsNodes> struct State;
-template <typename> inline constexpr auto is_state_v = false;
-template <typename P, typename S, typename N>
-inline constexpr auto is_state_v<State<P, S, N>> = true;
-template <typename S>
-concept IsState = is_state_v<S>;
-
-struct ParseFailure {};
-
-template <typename> inline constexpr auto is_result_v = false;
-template <IsRegex R> inline constexpr auto is_result_v<R> = true;
-template <> inline constexpr auto is_result_v<ParseFailure> = true;
-template <typename T>
-concept IsResult = is_result_v<T>;
-
-template <typename T>
-concept IsResultOrState = IsResult<T> || IsState<T>;
-
-} // namespace state
-using state::CaptureMark;
-using state::IsNodes;
-using state::IsResult;
-using state::IsResultOrState;
-using state::IsSentinels;
-using state::Mark;
-using state::Nodes;
-using state::ParseFailure;
-using state::Sentinels;
-using state::State;
-
-namespace consume {
-using enum Symbol;
-
-template <Symbol t, typename P, typename S, typename N> struct ConsumeTerminal {
-  using type = ParseFailure;
-};
-
-// EOT check is unnecessary since the IsEot specialization is more specific, but
-// it is included for clarity
-template <Symbol t, typename P, typename S, typename N>
-  requires(t != T_Eot && t == lex_v<P>)
-struct ConsumeTerminal<t, P, S, N> {
-  using type = State<typename P::next, S, N>;
-};
-
-template <IsEot P, typename S, typename N>
-struct ConsumeTerminal<T_Eot, P, S, N> {
-  using type = State<P, S, N>;
-};
-
-} // namespace consume
-using consume::ConsumeTerminal;
-
-namespace action {
-using enum Symbol;
-
-template <Symbol, char, typename> struct NextNodes {
-  static_assert(false, "Unrecognized action");
-};
-template <Symbol a, char c, typename N>
-using next_nodes_t = typename NextNodes<a, c, N>::type;
-
-template <template <typename...> class, typename> struct Merge;
-template <template <typename...> class List, typename... Ts>
-struct Merge<List, Nodes<Ts...>> {
-  static constexpr auto mark_index = []() {
-    auto marks = std::array<bool, sizeof...(Ts)>{{std::same_as<Mark, Ts>...}};
-    auto index = std::find(marks.begin(), marks.end(), true);
-    return static_cast<size_t>(std::distance(marks.begin(), index));
-  }();
-
-  static_assert(mark_index < sizeof...(Ts), "Mark not found");
-
-  template <size_t... Is>
-  static List<at_t<mark_index - Is - 1, Ts...>...>
-      merge_f(std::index_sequence<Is...>);
-  using merged = decltype(merge_f(std::make_index_sequence<mark_index>{}));
-
-  template <size_t... Is>
-  static Nodes<merged, at_t<mark_index + Is + 1, Ts...>...>
-      next_f(std::index_sequence<Is...>);
-  using type = decltype(next_f(
-      std::make_index_sequence<sizeof...(Ts) - mark_index - 1>{}));
-};
-
-template <template <typename...> class List, typename R, typename... Rs>
-struct Merge<List, Nodes<R, Mark, Rs...>> {
-  using type = Nodes<R, Rs...>;
-};
-
-template <char c, typename... Rs> struct NextNodes<A_Mark, c, Nodes<Rs...>> {
-  using type = Nodes<Mark, Rs...>;
-};
-
-template <char c, typename N>
-struct NextNodes<A_Alts, c, N> : Merge<Alternatives, N> {};
-
-template <char c, typename N>
-struct NextNodes<A_Cats, c, N> : Merge<Sequence, N> {};
-
-template <char c, typename R, typename... Rs, size_t C>
-struct NextNodes<A_Group, c, Nodes<R, CaptureMark<C>, Rs...>> {
-  using type = Nodes<Group<R, C>, Rs...>;
-};
-
-template <char c, typename... Rs> struct NextNodes<A_Lit, c, Nodes<Rs...>> {
-  using type = Nodes<Literal<false, c>, Rs...>;
-};
-template <char c, typename... Rs> struct NextNodes<A_Esc, c, Nodes<Rs...>> {
-  using type = Nodes<Literal<true, c>, Rs...>;
-};
-
-template <Symbol a, typename P, typename S, typename N> struct DoAction {
-  using type = State<P, S, next_nodes_t<a, P::current_char, N>>;
-};
-
-template <typename P, typename S, typename R, typename... Rs>
-struct DoAction<A_Rep, P, S, Nodes<R, Rs...>> {
-  using type = State<
-      P, S,
-      Nodes<Repetition<R, P::current_char, P::repetition_number_v>, Rs...>>;
-};
-
-template <typename P, typename S, typename... Rs>
-struct DoAction<A_Capture, P, S, Nodes<Rs...>> {
-  using type = State<P, S, Nodes<CaptureMark<P::capture_number_v>, Rs...>>;
-};
-
-template <typename P, typename S, typename N>
-struct DoAction<A_Reject, P, S, N> {
-  using type = ParseFailure;
-};
-
-} // namespace action
-using action::DoAction;
-
-namespace produce {
-using enum Symbol;
-
-template <Symbol nt, Symbol la>
-using produce_t = grammar::produce_list_t<Sentinels, nt, la>;
-
-template <Symbol nt, Symbol p, Symbol... ss>
-using predict_t = typename produce_t<nt, p>::template append<ss...>;
-
-} // namespace produce
-using produce::predict_t;
-using produce::produce_t;
-
-namespace iterate {
-constexpr bool isAction(Symbol s) { return s > Symbol::Actions_; }
-constexpr bool isTerminal(Symbol s) {
-  return s > Symbol::Terminals_ && s < Symbol::Actions_;
-}
-
-template <IsResultOrState> struct Step {
-  static_assert(false, "Invalid state");
-};
-
-template <typename R, IsEot P> struct Step<State<P, Sentinels<>, Nodes<R>>> {
-  static_assert(IsRegex<R>, "Parse ended with non-regex on stack");
-  using type = R;
-};
-
-template <typename R, typename P> struct Step<State<P, Sentinels<>, Nodes<R>>> {
-  using type = ParseFailure;
-};
-
-template <typename P, Symbol t, Symbol... ss, typename N>
-  requires(isAction(t))
-struct Step<State<P, Sentinels<t, ss...>, N>>
-    : DoAction<t, P, Sentinels<ss...>, N> {};
-
-template <typename P, Symbol t, Symbol... ss, typename N>
-  requires(isTerminal(t))
-struct Step<State<P, Sentinels<t, ss...>, N>>
-    : ConsumeTerminal<t, P, Sentinels<ss...>, N> {};
-
-template <typename P, Symbol t, Symbol... ss, typename N>
-struct Step<State<P, Sentinels<t, ss...>, N>> {
-  using type = State<P, predict_t<t, lex_v<P>, ss...>, N>;
-};
-
-template <IsResult R> struct Step<R> {
-  using type = R;
-};
-
-template <RegexString regex> struct InitialState {
-  using type =
-      State<Progress<regex.data, 0>, Sentinels<Symbol::Start>, Nodes<>>;
-};
-template <RegexString regex>
-using initial_state_t = typename InitialState<regex>::type;
-
-template <IsResultOrState, size_t> struct Iter;
-template <typename S, size_t N> using iter_t = typename Iter<S, N>::type;
-
-template <typename S> struct Iter<S, 0> : Step<S> {};
-template <IsResultOrState S, size_t N>
-struct Iter : Iter<iter_t<S, N - 1>, N - 1> {};
-
-template <IsResultOrState S, size_t N = 0>
-struct IterTilResult : IterTilResult<iter_t<S, N>, N + 1> {};
-
-template <IsResult S, size_t N> struct IterTilResult<S, N> {
-  using type = S;
-};
-} // namespace iterate
 
 using iterate::initial_state_t;
 using iterate::IterTilResult;
@@ -501,9 +155,7 @@ using match::CapturingMatcher;
 
 } // namespace detail
 
-using detail::IsRegex;
-using detail::ParseFailure;
-using detail::RegexString;
+using state::ParseFailure;
 
 template <RegexString regex>
 struct CompileTimeRegex
@@ -525,7 +177,7 @@ template <size_t N> struct MatchResult {
 
 template <RegexString regex> constexpr auto match(std::string_view text) {
   using Regex = compile_time_regex_t<regex>;
-  using P = detail::Progress<regex, regex.size()>;
+  using P = progress::Progress<regex, regex.size()>;
   constexpr auto groups = P::capture_number_v;
   constexpr auto repetitions = P::repetition_number_v;
   using CaptureData = detail::CaptureData<groups, repetitions>;
@@ -551,4 +203,4 @@ template <RegexString regex> constexpr auto match(std::string_view text) {
   }
 }
 
-} // namespace toyctre::compile_time
+} // namespace re::ct

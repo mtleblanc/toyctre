@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-namespace toyctre::grammar {
+namespace re::grammar {
 
 enum class Symbol {
   Start,
@@ -337,4 +337,4 @@ using detail::table;
 template <template <Symbol...> class List, Symbol nt, Symbol la>
 using produce_list_t = typename detail::Produce<nt, la>::template type<List>;
 
-} // namespace toyctre::grammar
+} // namespace re::grammar

@@ -20,11 +20,11 @@
 // pinned down here. The tests for it only check that a span from a failed
 // branch doesn't leak through.
 
-namespace toyctre {
+namespace re {
 namespace {
 
 using namespace ct_test;
-using compile_time::RegexString;
+using ct::RegexString;
 
 struct Span {
   std::size_t start;
@@ -47,7 +47,7 @@ struct Expected {
 // Number of entries in the result's groups array, including group 0.
 template <RegexString re>
 constexpr auto groupCount =
-    std::tuple_size_v<decltype(compile_time::match<re>("").groups)>;
+    std::tuple_size_v<decltype(ct::match<re>("").groups)>;
 
 // Check that `text` matches, that group 0 is the whole text, and that groups
 // 1..n have the expected spans. `expected` must list every group; use
@@ -57,7 +57,7 @@ void checkCaptures(std::string_view text,
                    std::initializer_list<Expected> expected) {
   auto pattern = patternOf<re>();
   CAPTURE(pattern, text);
-  auto result = compile_time::match<re>(text);
+  auto result = ct::match<re>(text);
   REQUIRE(result.success);
   REQUIRE(groupCount<re> == expected.size() + 1);
   CHECK(result.groups[0].start == 0);
@@ -78,7 +78,7 @@ template <RegexString re>
 void checkNotCaptured(std::string_view text, std::size_t i, Span stale) {
   auto pattern = patternOf<re>();
   CAPTURE(pattern, text, i);
-  auto result = compile_time::match<re>(text);
+  auto result = ct::match<re>(text);
   REQUIRE(result.success);
   CHECK_FALSE((result.groups[i].start == stale.start &&
                result.groups[i].end == stale.end));
@@ -112,14 +112,14 @@ TEST_CASE("CT capture: group 0 is the whole match", "[ct_matcher][capture]") {
 }
 
 TEST_CASE("CT capture: failed match", "[ct_matcher][capture]") {
-  CHECK_FALSE(compile_time::match<"a(b)c">("abd").success);
-  CHECK_FALSE(compile_time::match<"a(b)c">("").success);
-  CHECK_FALSE(compile_time::match<"(a)">("aa").success);
+  CHECK_FALSE(ct::match<"a(b)c">("abd").success);
+  CHECK_FALSE(ct::match<"a(b)c">("").success);
+  CHECK_FALSE(ct::match<"(a)">("aa").success);
 }
 
 TEST_CASE("CT capture: usable in constant expressions",
           "[ct_matcher][capture][constexpr]") {
-  constexpr auto result = compile_time::match<"a(bc)d">("abcd");
+  constexpr auto result = ct::match<"a(bc)d">("abcd");
   STATIC_CHECK(result.success);
   STATIC_CHECK(result.groups[1].start == 1);
   STATIC_CHECK(result.groups[1].end == 3);
@@ -249,4 +249,4 @@ TEST_CASE("CT capture: repetition backtracks into the continuation",
   checkCaptures<"(a|ab)*c">("ababc", {{2, 4}});
 }
 
-} // namespace toyctre
+} // namespace re

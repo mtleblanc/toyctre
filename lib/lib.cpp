@@ -14,7 +14,7 @@
 #include <variant>
 #include <vector>
 
-namespace toyctre {
+namespace re {
 namespace detail {
 using std::size_t;
 
@@ -146,4 +146,4 @@ constexpr ParseResult parse(std::string_view regex) {
 
 ParseResult parseRegex(std ::string_view regex) { return detail::parse(regex); }
 
-} // namespace toyctre
+} // namespace re

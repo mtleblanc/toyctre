@@ -10,7 +10,7 @@
 // matcher. Split from ct_matcher_test.cpp so the two compile in parallel. See
 // that file for the matching semantics.
 
-namespace toyctre {
+namespace re {
 namespace {
 
 using namespace ct_test;
@@ -86,4 +86,4 @@ TEST_CASE("CT: Pathological for backtracking", "[ct_matcher][stress]") {
   }
 }
 
-} // namespace toyctre
+} // namespace re

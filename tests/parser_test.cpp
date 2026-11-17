@@ -18,7 +18,7 @@
 // Each TEST_CASE is a separate ctest entry, so a crash in one category
 // doesn't hide results from the others.
 
-namespace toyctre {
+namespace re {
 namespace {
 
 void checkAccepts(std::initializer_list<std::string_view> regexes) {
@@ -200,4 +200,4 @@ TEST_CASE("Parser: Valid prefix followed by garbage", "[parser][reject]") {
   checkRejects({"a)b", "(a))b", "ab)", "a|b)c", "(a)*)"});
 }
 
-} // namespace toyctre
+} // namespace re

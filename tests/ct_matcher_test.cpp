@@ -24,7 +24,7 @@
 //   ct_matcher_groups_test.cpp  groups, precedence, escapes, composite, bytes
 //   ct_matcher_stress_test.cpp  long/pathological patterns, differential tests
 
-namespace toyctre {
+namespace re {
 namespace {
 
 using namespace ct_test;
@@ -36,15 +36,15 @@ using namespace ct_test;
 // ---------------------------------------------------------------------------
 
 TEST_CASE("CT: Usable in constant expressions", "[ct_matcher][constexpr]") {
-  STATIC_CHECK(compile_time::match<"abc">("abc").success);
-  STATIC_CHECK_FALSE(compile_time::match<"abc">("abd").success);
-  STATIC_CHECK(compile_time::match<"a|b">("b").success);
-  STATIC_CHECK_FALSE(compile_time::match<"a|b">("ab").success);
-  STATIC_CHECK(compile_time::match<"ab*c">("abbbc").success);
-  STATIC_CHECK(compile_time::match<"a+">("aaa").success);
-  STATIC_CHECK_FALSE(compile_time::match<"a+">("").success);
-  STATIC_CHECK(compile_time::match<"ab?">("a").success);
-  STATIC_CHECK(compile_time::match<R"re(a\*)re">("a*").success);
+  STATIC_CHECK(ct::match<"abc">("abc").success);
+  STATIC_CHECK_FALSE(ct::match<"abc">("abd").success);
+  STATIC_CHECK(ct::match<"a|b">("b").success);
+  STATIC_CHECK_FALSE(ct::match<"a|b">("ab").success);
+  STATIC_CHECK(ct::match<"ab*c">("abbbc").success);
+  STATIC_CHECK(ct::match<"a+">("aaa").success);
+  STATIC_CHECK_FALSE(ct::match<"a+">("").success);
+  STATIC_CHECK(ct::match<"ab?">("a").success);
+  STATIC_CHECK(ct::match<R"re(a\*)re">("a*").success);
 }
 
 // ---------------------------------------------------------------------------
@@ -137,4 +137,4 @@ TEST_CASE("CT: Repetition precedence binds to single unit",
   checkMatches<"ab?">({"a", "ab"}, {"", "b"});
 }
 
-} // namespace toyctre
+} // namespace re

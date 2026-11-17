@@ -20,9 +20,9 @@
 #include <string_view>
 #include <vector>
 
-namespace toyctre::ct_test {
+namespace re::ct_test {
 
-using compile_time::RegexString;
+using ct::RegexString;
 
 template <RegexString re> constexpr std::string_view patternOf() {
   return {re.data, re.size()};
@@ -35,11 +35,11 @@ void checkMatches(std::initializer_list<std::string_view> matching,
   CAPTURE(pattern);
   for (auto text : matching) {
     CAPTURE(text);
-    CHECK(compile_time::match<re>(text));
+    CHECK(ct::match<re>(text));
   }
   for (auto text : nonMatching) {
     CAPTURE(text);
-    CHECK_FALSE(compile_time::match<re>(text));
+    CHECK_FALSE(ct::match<re>(text));
   }
 }
 
@@ -65,7 +65,7 @@ void checkAgainstRuntime(std::string_view alphabet, std::size_t maxLen) {
 
   for (const auto &text : texts) {
     CAPTURE(text);
-    CHECK(compile_time::match<re>(text) == match(parsed.regex, text));
+    CHECK(ct::match<re>(text) == match(parsed.regex, text));
   }
 }
 
@@ -89,4 +89,4 @@ template <auto F> constexpr auto frozen() {
   return ret;
 }
 
-} // namespace toyctre::ct_test
+} // namespace re::ct_test

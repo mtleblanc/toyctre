@@ -8,7 +8,7 @@
 // the matching semantics): groups, precedence, escapes, composite expressions
 // and unusual bytes. Split out so the files compile in parallel.
 
-namespace toyctre {
+namespace re {
 namespace {
 
 using namespace std::string_view_literals;
@@ -177,4 +177,4 @@ TEST_CASE("CT: High-bit bytes", "[ct_matcher][bytes]") {
   checkMatches<"(é)+">({"é", "ééé"}, {"", "e"});
 }
 
-} // namespace toyctre
+} // namespace re

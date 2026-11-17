@@ -4,14 +4,13 @@
 // Case: @CT_CATEGORY@ / expect @CT_EXPECT@
 
 #include "toyctre/compile_time.hpp"
-
-#include <concepts>
+#include "toyctre/regex_nodes.hpp"
 
 #cmakedefine01 CT_EXPECT_REJECT
 
-using toyctre::compile_time::compile_time_regex_t;
-using toyctre::compile_time::IsRegex;
-using toyctre::compile_time::ParseFailure;
+using re::ct::compile_time_regex_t;
+using re::ct::IsRegex;
+using re::ct::ParseFailure;
 
 using Result = compile_time_regex_t<R"__re__(@CT_REGEX@)__re__">;
 
