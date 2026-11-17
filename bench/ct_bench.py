@@ -94,15 +94,15 @@ def cpp_string(s: str) -> str:
 
 def parse_tu(regex: str) -> str:
     return (PRELUDE +
-            f"using R = toyctre::compile_time::compile_time_regex_t<"
+            f"using R = re::ct::compile_time_regex_t<"
             f"{cpp_string(regex)}>;\n"
-            "static_assert(toyctre::compile_time::IsRegex<R>);\n")
+            "static_assert(re::ct::IsRegex<R>);\n")
 
 
 def realistic_tu() -> str:
     lines = [PRELUDE]
     for regex, text in REALISTIC:
-        lines.append(f"static_assert(toyctre::compile_time::match<"
+        lines.append(f"static_assert(re::ct::match<"
                      f"{cpp_string(regex)}>({cpp_string(text)}));\n")
     return "".join(lines)
 

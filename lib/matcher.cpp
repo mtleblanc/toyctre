@@ -112,18 +112,22 @@ struct Fragment {
     int gen = 1;
     std::vector<Node *> currentNodes{};
     std::vector<Node *> nextNodes{};
-    auto queue = [&nextNodes](this auto &&q, Node *s, int gen) {
+    // Capture-free: clang 18 crashes on capturing lambdas with an explicit
+    // object parameter.
+    auto queueImpl = [](this auto &&q, std::vector<Node *> &out, Node *s,
+                        int gen) {
       if (s == nullptr || s->gen == gen) {
         return;
       };
       s->gen = gen;
       if (s->c == Node::ALTERNATIVE) {
-        q(s->next, gen);
-        q(s->nextl, gen);
+        q(out, s->next, gen);
+        q(out, s->nextl, gen);
       } else {
-        nextNodes.push_back(s);
+        out.push_back(s);
       }
     };
+    auto queue = [&](Node *s, int gen) { queueImpl(nextNodes, s, gen); };
 
     queue(start, gen);
     std::swap(nextNodes, currentNodes);

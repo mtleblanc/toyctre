@@ -173,7 +173,11 @@ template <InPlaceVector v> consteval auto view() {
   return std::span{v.data.data(), v.size()};
 }
 
-template <typename F = decltype([]() { return dynamicProductions(); }),
+struct DynamicProductionsFn {
+  consteval auto operator()() const { return dynamicProductions(); }
+};
+
+template <typename F = DynamicProductionsFn,
           size_t N = 50>
 consteval auto packedProductions() {
   constexpr auto oversized = InPlaceVector<Symbol, N>::flatten(
