@@ -44,7 +44,10 @@ template <RegexString r, size_t N> struct Progress {
   static constexpr auto lex_v =
       at_eot_v ? Symbol::T_Eot : grammar::lexChar(current_char_v);
 
-  static constexpr auto capture_number_v = [] {
+  // specifying size_t return type instead of auto lets the compiler skip
+  // instantiation if not referenced. The lambda uses a significant portion of
+  // gcc memory despite the number of Progress instantiations being only N+1
+  static constexpr size_t capture_number_v = [] {
     auto ret = 0uz;
     for (auto i = 0uz; i < N; ++i) {
       if (r.data[i] == '\\') {

@@ -1,6 +1,6 @@
 ## Document purpose
 
-This aim of this project is to learn metaprogramming.  This document is to record concepts as I understand them.
+The aim of this project is to learn metaprogramming.  This document is to record concepts as I understand them.
 
 ## Basics
 
@@ -24,10 +24,10 @@ Using `using type = ReturnType` is standard.
 
 Typechecking is minimal.  The above allows the instantiation of `Square<int>`, which will lead to the error `error: 'value' is not a member of 'int'`.  This happens when `Square<int>` is actually instantiated, not when it is named, so the compiler output can be very long, listing the whole chain of instantiations leading to it.
 
-Partial specialization can let us extract template arguments, and prevent instantiation of invalid arguments, though the error is still at instantiation time.  This will give an error `invalid use of incomplete type` if we don't provide a default, or we can customize the error message by having a default with a failing `static_assert`.  Note that the static_assert method will still allow the type to be created, so the compilation will continue and produce more errors when `Square<int>` has no member `type`.  Concepts & requires clauses can also help with error messages, but can also increase error output when multiple partial specializations would match without the requires.
+Partial specialization can let us extract template arguments, and prevent instantiation of invalid arguments, though the error is still at instantiation time.  This will give an error `invalid use of incomplete type` if we don't provide a default, or we can customize the error message by having a default with a failing `static_assert` (may not be valid in older compilers).  Note that the static_assert method will still allow the type to be created, so the compilation will continue and produce more errors when `Square<int>` has no member `type`.  Concepts & requires clauses can also help with error messages, but can also increase error output when multiple partial specializations would match without the requires.
 
 
-When calling other metafunctions, eg `template<typename T> struct Quartic { using type = typename Square<typename Square<T>::type>::type };` The compiler can't know that `Square<T>::type` is a type until it instantiates `Square<T>`, but in the definition of Quartic, `T` is a template and doesn't yet have a value.  So `typename` is required.  Convention is to make an alias `template<typename T> using square_t = typename Square<T>::type;` As of C++20, the `typename` is not required in `using <alias> = typename <dependent type>`, but is still required within `<dependent type>`.  I.e. we can remove the first `typename` in `Quartic`, but not the second.
+When calling other metafunctions, eg `template<typename T> struct Quartic { using type = typename Square<typename Square<T>::type>::type; };` The compiler can't know that `Square<T>::type` is a type until it instantiates `Square<T>`, but in the definition of Quartic, `T` is a template and doesn't yet have a value.  So `typename` is required.  Convention is to make an alias `template<typename T> using square_t = typename Square<T>::type;` As of C++20, the `typename` is not required in `using <alias> = typename <dependent type>`, but is still required within `<dependent type>`.  I.e. we can remove the first `typename` in `Quartic`, but not the second.
 
 ```
 template<int x> struct Int { static constexpr int value = x; };
@@ -71,7 +71,7 @@ static_assert(std::is_same_v<factorial_t<Int<4>>, Int<24>>);
 
 ### Lazy evaluation
 
-Naming an incomplete type or one that has a failing `static_assert` does not cause an error unless it is instantiated.  This can be useful for lazy evaluation.  Types are only instantiated if we use it in some way, eg accessing a static member, calling a static member function, or constructing it.  Just using a type as a type parameter does not instantiate.  `std::conditional<bool c typename T, typename F>` has `type = T` if `c`, and `type = F` otherwise. The unselected type is not instantiated.  But the expression for `T` may cause an instantiation of an undesired type if care is not taken. 
+Naming an incomplete type or one that has a failing `static_assert` does not cause an error unless it is instantiated.  This can be useful for lazy evaluation.  Types are only instantiated if we use it in some way, eg accessing a static member, calling a static member function, or constructing it.  Just using a type as a type parameter does not instantiate.  `std::conditional<bool c, typename T, typename F>` has `type = T` if `c`, and `type = F` otherwise. Neither type is instantiated by `std::conditional`, the selected branch will only be instantiated when we use `std::conditional::type` in a way requiring instantiation.  But the expression for `T` may cause an instantiation of an undesired type if care is not taken. 
 
 ```
 template<int x> struct Int { static constexpr int value = x; };
@@ -130,7 +130,7 @@ static_assert(std::is_same_v<square_alias_t<Int<5>>, Int<25>>);
 ```
 [Compiler Explorer](https://godbolt.org/z/hajWEqjzM)
 
-Similarly, if we want to return a (non-type) value, we could do `template<typename> struct ValueReturningMetafunction { static constexpr auto value = <value>; };`, but we can also just do `template<typename> inline constexpr auto value = <value>;`.  (See `is_int_v` in the Lazy evaluation example) Unlike aliases which can't be specialized, template variables can be, so complicated metafunctions can be created this way.  For leaf metafunctions where a value is always defined and always needed eagerly, the variable form is convenient.  The struct form supports lazy evaluation, SFINAE, and use with higher order metafunctions.  `if constexpr` and `requires` can remove the need for the former two.
+Similarly, if we want to return a (non-type) value, we could do `template<typename> struct ValueReturningMetafunction { static constexpr auto value = <value>; };`, but we can also just do `template<typename> inline constexpr auto value = <value>;`.  (See `is_int_v` in the Lazy evaluation example) Unlike aliases which can't be specialized, template variables can be, so complicated metafunctions can be created this way.  For leaf metafunctions where a value is always defined and always needed eagerly, the variable form is convenient.  The struct form supports lazy evaluation (of the entire struct, or of members with explicit types. `auto` members are evaluated when the struct is instantiated), SFINAE, and use with higher order metafunctions.  `if constexpr` and `requires` can remove the need for the former two.
 
 ## Parameter packs
 
@@ -148,16 +148,16 @@ static_assert(std::is_same_v<push_t<List<int, float>, double>, List<double, int,
 ```
 [Compiler Explorer](https://godbolt.org/z/TbGY1djvK)
 
-Within the list type
+Within the list type (NB like `typename`, a template in a dependent type needs the `template` keyword, optional in some `using` contexts as of C++23)
 ```
 template<typename...Ts> struct List { template<typename T> using push_t = List<T, Ts...>; };
 
-template<typename L, typename T> struct Push { using type = typename L::push_t<T>; };
+template<typename L, typename T> struct Push { using type = typename L::template push_t<T>; };
 template<typename L, typename T> using push_t = typename Push<L,T>::type;
 
 static_assert(std::is_same_v<push_t<List<int, float>, double>, List<double, int, float>>);
 ```
-[Compiler Explorer](https://godbolt.org/z/8qsbqzeod)
+[Compiler Explorer](https://godbolt.org/z/eoM6Tzsr3)
 
 As the return type of a templated function
 ```
@@ -174,3 +174,31 @@ static_assert(std::is_same_v<push_t<List<int, float>, double>, List<double, int,
 [Compiler Explorer](https://godbolt.org/z/dKn6d6Ejc)
 
 Note that the first does not require instantiating the type while the other two do.
+
+### Indexing parameter packs
+
+Obtaining the type a fixed distance from the start or end of a pack can be deduced, e.g. `template<typename T1, typename T2, typename ... Ts> struct Foo<List<T1, T2, Ts...>>;`.  To access an arbitrary index, C++26 is introducing pack indexing, but we can use functions and inheritance in C++23 and below.
+
+```
+// needs to be complete to be used as a base class
+template<std::size_t, typename> struct Indexed{};
+
+template<typename, typename...> struct IndexedAll;
+template<std::size_t...Is, typename...Ts>
+struct IndexedAll<std::index_sequence<Is...>, Ts...> : Indexed<Is, Ts>...{};
+
+// IndexedPack<T0, T1, ...> inherits from Indexed<0, T0>, Indexed<1, T1>, ...
+template<typename...Ts>
+struct IndexedPack : IndexedAll<std::index_sequence_for<Ts...>, Ts...>{};
+
+// A passed IndexPack<T0, T1, ...> can be implicitly converted to any of its base classes,
+// making pick<0, T0>, pick<1, T1>... all valid overloads for pick(IndexedPack<T0, T1,...>)
+template<std::size_t I, typename T> std::type_identity<T> pick(Indexed<I, T>);
+
+// Providing I makes only the overload for the matching base class valid, allowing T to be deduced
+template<std::size_t I, typename...Ts>
+using at_t = typename decltype(pick<I>(IndexedPack<Ts...>{}))::type;
+
+static_assert(std::is_same_v<at_t<2, int, float, double>, double>);
+```
+[Compiler Explorer](https://godbolt.org/z/8YqrGWdoT)
