@@ -5,7 +5,6 @@
 #include <bitset>
 #include <cstddef>
 #include <iterator>
-#include <ranges>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -90,7 +89,7 @@ consteval Production operator>>=(Symbol head, Symbol body) {
   return Production{head, {body}};
 }
 
-consteval auto dynamicProductions() {
+consteval auto productionsVector() {
   using enum Symbol;
   const auto epsilon = std::vector<Symbol>{};
   return std::vector<Production>{
@@ -135,19 +134,6 @@ template <typename T, size_t N> struct InPlaceVector {
     std::copy(o.begin(), o.end(), data.begin());
   }
 
-  consteval static InPlaceVector flatten(std::ranges::range auto &&r) {
-    auto ret = InPlaceVector{};
-    auto it = ret.data.begin();
-    for (const auto &v : r) {
-      ret.used += v.size();
-      if (ret.used > N) {
-        throw std::out_of_range{"More elements in range than capacity"};
-      }
-      it = std::copy(v.begin(), v.end(), it);
-    }
-    return ret;
-  }
-
   [[nodiscard]] constexpr auto begin() const noexcept { return data.begin(); }
   [[nodiscard]] constexpr auto end() const noexcept {
     return std::next(data.begin(), static_cast<ptrdiff_t>(used));
@@ -173,24 +159,37 @@ template <InPlaceVector v> consteval auto view() {
   return std::span{v.data.data(), v.size()};
 }
 
-struct DynamicProductionsFn {
-  consteval auto operator()() const { return dynamicProductions(); }
-};
-
-template <typename F = DynamicProductionsFn, size_t N = 50>
+template <std::size_t N = 50, std::size_t M = 20>
 consteval auto packedProductions() {
-  constexpr auto oversized = InPlaceVector<Symbol, N>::flatten(
-      F{}() | std::ranges::views::transform([](auto p) { return p.body; }));
-  constexpr InPlaceVector<Symbol, oversized.size()> sized = oversized;
-  constexpr auto v = view<sized>();
+  constexpr auto data = [] {
+    auto vec = productionsVector();
+    auto oversized = InPlaceVector<Symbol, N>{};
+    auto heads = std::array<Symbol, M>{};
+    auto lengths = std::array<std::size_t, M>{};
+    auto it = oversized.data.begin();
+    for (auto i = 0uz; i < vec.size(); ++i) {
+      auto prod = vec[i].body;
+      heads[i] = vec[i].head;
+      oversized.used += prod.size();
+      lengths[i] = prod.size();
+      it = std::copy(prod.begin(), prod.end(), it);
+    }
+    return std::make_tuple(vec.size(), oversized.size(), oversized, lengths,
+                           heads);
+  }();
+  constexpr auto productionCount = std::get<0>(data);
+  constexpr auto bodyCount = std::get<1>(data);
+  constexpr auto bodies = std::get<2>(data);
+  constexpr auto lengths = std::get<3>(data);
+  constexpr auto heads = std::get<4>(data);
 
-  constexpr auto M = F{}().size();
+  constexpr InPlaceVector<Symbol, bodyCount> sized = bodies;
 
-  auto ret = InPlaceVector<CtProduction, M>{};
-  auto rem = v;
-  for (const auto &p : F{}()) {
-    ret.push_back(CtProduction{p.head, rem.subspan(0, p.body.size())});
-    rem = rem.subspan(p.body.size());
+  auto ret = InPlaceVector<CtProduction, productionCount>{};
+  auto rem = view<sized>();
+  for (auto i = 0uz; i < productionCount; ++i) {
+    ret.push_back(CtProduction{heads[i], rem.subspan(0, lengths[i])});
+    rem = rem.subspan(lengths[i]);
   }
   return ret;
 }
