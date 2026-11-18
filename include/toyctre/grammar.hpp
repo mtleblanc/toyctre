@@ -39,8 +39,8 @@ enum class Symbol {
   A_Capture,
   A_Group,
   A_Lit,
-  A_Esc,
   A_Rep,
+  A_NoRep,
 
   A_Reject,
 
@@ -103,7 +103,7 @@ consteval auto dynamicProductions() {
       Reps >>= Unt + Amt + Reps,
       Reps >>= epsilon,
       Unt >>= A_Lit + T_Reg,
-      Unt >>= T_Esc + A_Esc + Lit,
+      Unt >>= T_Esc + A_Lit + Lit,
       Lit >>= T_Reg,
       Lit >>= T_Rep,
       Lit >>= T_LPar,
@@ -112,7 +112,7 @@ consteval auto dynamicProductions() {
       Lit >>= T_Bar,
       Unt >>= T_LPar + A_Capture + Alt + A_Group + T_RPar,
       Amt >>= A_Rep + T_Rep,
-      Amt >>= epsilon,
+      Amt >>= A_NoRep,
   };
 }
 
@@ -177,8 +177,7 @@ struct DynamicProductionsFn {
   consteval auto operator()() const { return dynamicProductions(); }
 };
 
-template <typename F = DynamicProductionsFn,
-          size_t N = 50>
+template <typename F = DynamicProductionsFn, size_t N = 50>
 consteval auto packedProductions() {
   constexpr auto oversized = InPlaceVector<Symbol, N>::flatten(
       F{}() | std::ranges::views::transform([](auto p) { return p.body; }));

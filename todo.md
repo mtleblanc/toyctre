@@ -1,6 +1,6 @@
 - [x] Use single grammar for compile and runtime parsers
 - [x] Remove action drift between compile time and runtime 
-- [ ] Capture groups
+- [x] Capture groups
 - [ ] Merge Sequence<Literal...> into a literal string node
 - [ ] Character classes
 - [ ] Allow empty groups and empty alternatives

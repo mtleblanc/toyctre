@@ -168,19 +168,26 @@ struct NextNodes<A_Group, c, Nodes<R, CaptureMark<C>, Rs...>> {
 };
 
 template <char c, typename... Rs> struct NextNodes<A_Lit, c, Nodes<Rs...>> {
-  using type = Nodes<Literal<false, c>, Rs...>;
+  using type = Nodes<LiteralString<c>, Rs...>;
 };
-template <char c, typename... Rs> struct NextNodes<A_Esc, c, Nodes<Rs...>> {
-  using type = Nodes<Literal<true, c>, Rs...>;
+
+template <char c, typename R, typename... Rs>
+struct NextNodes<A_Rep, c, Nodes<R, Rs...>> {
+  using type = Nodes<Repetition<R, c>, Rs...>;
+};
+
+template <char c, typename... Rs> struct NextNodes<A_NoRep, c, Nodes<Rs...>> {
+  using type = Nodes<Rs...>;
+};
+
+template <char c, char d, char... ds, typename... Rs>
+struct NextNodes<A_NoRep, c,
+                 Nodes<LiteralString<d>, LiteralString<ds...>, Rs...>> {
+  using type = Nodes<LiteralString<ds..., d>, Rs...>;
 };
 
 template <Symbol a, typename P, typename S, typename N> struct DoAction {
   using type = State<P, S, next_nodes_t<a, P::current_char_v, N>>;
-};
-
-template <typename P, typename S, typename R, typename... Rs>
-struct DoAction<A_Rep, P, S, Nodes<R, Rs...>> {
-  using type = State<P, S, Nodes<Repetition<R, P::current_char_v>, Rs...>>;
 };
 
 template <typename P, typename S, typename... Rs>

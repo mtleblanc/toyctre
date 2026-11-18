@@ -1,6 +1,9 @@
 #pragma once
 
+#include <array>
+#include <cassert>
 #include <cstddef>
+#include <string_view>
 
 namespace re::ctn {
 using std::size_t;
@@ -25,8 +28,12 @@ template <IsRegex R, char r> struct Repetition {};
 template <typename R, char r>
 inline constexpr auto is_regex_v<Repetition<R, r>> = true;
 
-template <bool e, char c> struct Literal {};
-template <bool e, char c>
-inline constexpr auto is_regex_v<Literal<e, c>> = true;
+template <char... cs> struct LiteralString {
+  static constexpr std::array<char, sizeof...(cs) + 1> data = {cs..., 0};
+  static constexpr std::string_view view =
+      std::string_view{data.data(), sizeof...(cs)};
+};
+template <char... cs>
+inline constexpr auto is_regex_v<LiteralString<cs...>> = true;
 
 } // namespace re::ctn

@@ -61,12 +61,12 @@ template <typename Data> struct CapturingMatcher {
     }
   };
 
-  template <bool e, char c, typename... Rs>
-  struct Matcher<Literal<e, c>, Rs...> {
+  template <char... cs, typename... Rs>
+  struct Matcher<LiteralString<cs...>, Rs...> {
     static constexpr auto match(std::string_view text, Data &data) -> bool {
-      if (text.empty() || text.front() != c)
-        return false;
-      return Matcher<Rs...>::match(text.substr(1), data);
+      auto sv = LiteralString<cs...>::view;
+      return text.starts_with(sv) &&
+             Matcher<Rs...>::match(text.substr(sv.size()), data);
     }
   };
 

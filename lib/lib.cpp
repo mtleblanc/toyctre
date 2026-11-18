@@ -107,14 +107,12 @@ constexpr ParseResult parse(std::string_view regex) {
         nodes.emplace_back(std::move(node));
         break;
       }
-      case A_Esc: {
-        auto node = Repetition{{}, (*it).c, false, true};
-        nodes.emplace_back(std::move(node));
-        break;
-      }
       case A_Rep: {
         auto &node = std::get<Repetition>(nodes.back());
         node.rep = (*it).c;
+        break;
+      }
+      case A_NoRep: {
         break;
       }
       case A_Reject: {
