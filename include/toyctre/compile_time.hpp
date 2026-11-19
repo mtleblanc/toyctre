@@ -19,6 +19,26 @@ using iterate::IterTilResult;
 
 namespace match {
 
+template <typename> inline constexpr auto is_nullable = false;
+template <> inline constexpr auto is_nullable<LiteralString<>> = true;
+template <char... cs>
+inline constexpr auto is_nullable<LiteralString<cs...>> = false;
+template <typename R>
+inline constexpr auto is_nullable<Repetition<R, '*'>> = true;
+template <typename R>
+inline constexpr auto is_nullable<Repetition<R, '?'>> = true;
+
+template <typename R>
+inline constexpr auto is_nullable<Repetition<R, '+'>> = is_nullable<R>;
+template <typename R, size_t C>
+inline constexpr auto is_nullable<Group<R, C>> = is_nullable<R>;
+
+template <typename... Rs>
+inline constexpr auto is_nullable<Alternatives<Rs...>> =
+    (is_nullable<Rs> || ...);
+template <typename... Rs>
+inline constexpr auto is_nullable<Sequence<Rs...>> = (is_nullable<Rs> && ...);
+
 template <size_t Groups> class CaptureData {
   static constexpr auto N = 2 * Groups + 2;
   std::array<size_t, N> data{};
@@ -124,6 +144,39 @@ template <typename Data> struct CapturingMatcher {
       if (text.empty()) {
         return Matcher<Rs...>::match(text, data);
       }
+      return Matcher<R, Repetition<R, '*'>, Rs...>::match(text, data) ||
+             Matcher<Rs...>::match(text, data);
+    }
+  };
+
+  template <char... cs, typename... Rs>
+    requires(sizeof...(cs) > 0)
+  struct Matcher<Repetition<LiteralString<cs...>, '*'>, Rs...> {
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      constexpr auto stride = sizeof...(cs);
+      constexpr auto needle = LiteralString<cs...>::view;
+      auto idx = 0uz;
+      while (text.substr(idx).starts_with(needle)) {
+        idx += stride;
+      }
+      for (;;) {
+        if (Matcher<Rs...>::match(text.substr(idx), data)) {
+          return true;
+        }
+        if (idx == 0)
+          return false;
+        idx -= stride;
+      }
+    }
+  };
+
+  template <typename R, typename... Rs>
+    requires(is_nullable<R>)
+  struct Matcher<Repetition<R, '*'>, Rs...> {
+    static constexpr auto match(std::string_view text, Data &data) -> bool {
+      if (text.empty()) {
+        return Matcher<Rs...>::match(text, data);
+      }
       auto &ref = data.repeat();
       auto orig = ref;
       ref = text.size();
@@ -137,16 +190,8 @@ template <typename Data> struct CapturingMatcher {
   template <typename R, typename... Rs>
   struct Matcher<ProgressedRepetition<R>, Rs...> {
     static constexpr auto match(std::string_view text, Data &data) -> bool {
-      auto &ref = data.repeat();
-      if (ref == text.size()) {
-        return false;
-      }
-      auto orig = ref;
-      ref = text.size();
-      auto first =
-          Matcher<R, ProgressedRepetition<R>, Rs...>::match(text, data);
-      ref = orig;
-      return first || Matcher<Rs...>::match(text, data);
+      return data.repeat() != text.size() &&
+             Matcher<Repetition<R, '*'>, Rs...>::match(text, data);
     }
   };
 
