@@ -6,6 +6,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+include(CTest)
+if(BUILD_TESTING)
+  include(FetchContent)
+  fetchcontent_declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.7.1
+    )
+  fetchcontent_makeavailable(Catch2)
+  list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
+endif()
+
 add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_UPPER)
@@ -21,15 +33,6 @@ endif()
 add_subdirectory(lib)
 add_subdirectory(src)
 
-include(CTest)
 if(BUILD_TESTING)
-  include(FetchContent)
-  FetchContent_Declare(
-        Catch2
-        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-        GIT_TAG v3.7.1
-    )
-  FetchContent_MakeAvailable(Catch2)
-  list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
   add_subdirectory(tests)
 endif()

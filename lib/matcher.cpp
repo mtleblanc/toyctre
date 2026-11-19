@@ -176,7 +176,7 @@ Fragment NfaBuilder::of(const Concatenation &cat) {
 }
 
 Fragment NfaBuilder::of(const Repetition &rep) {
-  auto f = rep.isNested ? of(rep.altenative) : of(rep.literal);
+  auto f = rep.isNested ? of(rep.alternative) : of(rep.literal);
   switch (rep.rep) {
   case 0:
     break;

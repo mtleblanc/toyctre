@@ -20,9 +20,9 @@ using iterate::IterTilResult;
 namespace match {
 
 template <size_t Groups> class CaptureData {
-  static constexpr auto RepStart = 2 * Groups + 2;
-  std::array<size_t, RepStart> data{};
-  size_t rep{};
+  static constexpr auto N = 2 * Groups + 2;
+  std::array<size_t, N> data{};
+  size_t repeat_{};
 
 public:
   constexpr CaptureData() = default;
@@ -40,8 +40,7 @@ public:
     return data[2 * i - 1];
   }
 
-  // Repetition indexing starts at 0
-  constexpr auto &repStart() { return rep; }
+  constexpr auto &repeat() { return repeat_; }
 };
 
 template <size_t C> struct EndGroup;
@@ -125,7 +124,7 @@ template <typename Data> struct CapturingMatcher {
       if (text.empty()) {
         return Matcher<Rs...>::match(text, data);
       }
-      auto &ref = data.repStart();
+      auto &ref = data.repeat();
       auto orig = ref;
       ref = text.size();
       auto first =
@@ -138,7 +137,7 @@ template <typename Data> struct CapturingMatcher {
   template <typename R, typename... Rs>
   struct Matcher<ProgressedRepetition<R>, Rs...> {
     static constexpr auto match(std::string_view text, Data &data) -> bool {
-      auto &ref = data.repStart();
+      auto &ref = data.repeat();
       if (ref == text.size()) {
         return false;
       }

@@ -2,3 +2,5 @@ build/
 .cache
 .toygit
 compile_commands.json
+__pycache__
+*.pyc

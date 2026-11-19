@@ -1,10 +1,16 @@
 - [x] Use single grammar for compile and runtime parsers
 - [x] Remove action drift between compile time and runtime 
 - [x] Capture groups
-- [ ] Merge Sequence<Literal...> into a literal string node
+  - [ ] Pick standard behavior for groups in repetitions (eg `(a*)*b` on b, `(a|(b))*`  on ba)
+  - [ ] Differentiate unmatched from empty match at end
+  - [ ] Non capturing groups
+  - [ ] Make group numbering based on parsing instead of counting unescaped parens
+- [x] Merge Sequence<Literal...> into a literal string node
 - [ ] Character classes
 - [ ] Allow empty groups and empty alternatives
 - [ ] Revisit star normalization and auto-possessification
+- [ ] Catastrophic backtracking
+- [ ] Stack depth
 - [ ] Compile time performance
   - [x] Have iterate end on IsRegex/ParseFailure instead of at fixed point
   - [ ] Replace types with aliases where possible
@@ -12,5 +18,10 @@
     - [x] concat_t in predict_t - sentinels already deduced, reuse
     - [x] remove push_t, head_t, Replace head, use deduced lists
     - [x] replace : Id<T> with explicit using type = T;
+  - [ ] Merge
+      - [ ] mark_index is auto + lambda
+      - [ ] at_t is quadratic
   - [ ] Use packs instead of recursion where possible
-
+- [ ] Remove `using` from public namespaces for non-public names
+- [ ] Deduplicate lex (grammar.hpp + lib.cpp)
+- [ ] Error messaging on packedProductions if oversized values are too small

@@ -3,9 +3,11 @@
 #include "toyctre/ct_base.hpp"
 #include "toyctre/grammar.hpp"
 #include "toyctre/regex_nodes.hpp"
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <iterator>
 #include <utility>
 
 namespace re::ct {
@@ -256,8 +258,8 @@ template <IsResult R> struct Step<R> {
 };
 
 template <RegexString regex> struct InitialState {
-  using type = State<progress::Progress<regex.data, 0>,
-                     Sentinels<Symbol::Start>, Nodes<>>;
+  using type =
+      State<progress::Progress<regex, 0>, Sentinels<Symbol::Start>, Nodes<>>;
 };
 template <RegexString regex>
 using initial_state_t = typename InitialState<regex>::type;
