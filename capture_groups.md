@@ -164,3 +164,55 @@ struct Matcher {
 The cost of this is at compile time.  In other tests, the overload resolution was more expensive than partial specialization, but this specific change hasn't been tested.
 
 None of the options are clear winners, I've opted for the explicit passing with reference semantics solely for stylistic reasons.  TODO: try the others and measure performance.
+
+## Repetitions
+
+The backtracking matcher needs a way to deal with repetition on expressions that can match empty (such an expression is called nullable).  Eg `(a?)*`, without modification, will overflow the stack matching nothing on `b` - `a?` matches the empty string, and it can do so arbitrarily many times.  The first approach I used to solve this was to replace the expression with a non-nullable expression that matches the same words when repeated, eg `(a)*` matches the same words as `(a?)*`.
+
+### Star normalization
+
+The desired properties are `!nullable(star_normal(E))` and `(E)* = (star_normal(E))*` where equality here means matching the same words.  Both nullable and star_normal are defined structurally (lowercase letters indicate literal characters, upper case indicate expressions)
+
+```
+nullable(c) = false;
+nullable(E*) = true;
+nullable(E?) = true;
+
+nullable(E+) = nullable(E)
+nullable((E)) = nullable(E)
+
+nullable(EF) = nullable(E) && nullable(F)
+nullable(E|F) = nullable(E) || nullable(F)
+
+star_normal(E) = E                                  if !nullable(E)
+star_normal((E)) = (star_normal(E))
+star_normal(EF) = star_normal(E) | star_normal(F)   if nullable(EF)
+star_normal(E|F) = star_normal(E) | star_normal(F)
+star_normal(E*) = star_normal(E)
+star_normal(E+) = star_noraml(E)
+star_normal(E?) = star_normal(E)
+```
+
+Unfortunately, the sequence case breaks capture groups. `((a?)b?)*` and `((a)|b)*` both match any word consisting solely of `a` and `b`, but when matching `b`, the former captures an empty string at the start, while the latter captures nothing.
+
+### Progress tracking
+
+Instead of changing the regex, the matcher can record where it is in the text each time it enters a repetition and reject if it hasn't consumed at least one character.
+
+Note this does still affect captures, it rejects an empty capture if there are any nonempty ones, but this is probably desired (TODO: Explicitly specify which capture is selected in repetitions).  E.g., `(a?)*` matching `a` could say this is `n` matches of `epsilon`, `1` match of `a`, then `m` matches of epsilon.  If, say, we record the last capture, such an interpretation would capture an empty string after the `a`, while the progress tracking version always captures `a`.  It also rejects an empty capture when there are no non-empty captures, and this probably should be addressed (TODO).
+
+Each repetition could get its own slot, akin to `captureData`.  Store and restore on failure is still needed for nested repetitions.  But if the store and restore is happening, only one slot is needed provided the repetitions don't interleave.  Sequential and alternative repetitions can't interleave, each case is fully processed before moving to the next in sequence or the next alternative.  Nested repetitions do interleave though, with the inner repetition beginning again after the outer repetition repeats the first time.  However, this restarting doesn't need to be progressed from the previous - the outer repetition consumed a character else it wouldn't repeat, so the match is progressing.  So we only need to check that progress has been made the second (and more) time we enter the repetition.
+
+```
+auto match<Repetition<E>, Rs...>(auto text) {
+  recordProgress();
+  auto rest = match<E, ProgressedRepetition<E>, Rs>(text);
+  if(rest) return true;
+  resetProgress();
+  return match<Rs...>(text);
+}
+
+auto match<ProgressedRepetition<E>, Rs...>(auto text) {
+  return checkProgress() && match<Repeption<E>, Rs...>(test);  
+}
+```
