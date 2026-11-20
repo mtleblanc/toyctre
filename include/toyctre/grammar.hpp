@@ -21,17 +21,30 @@ enum class Symbol {
   Unt,
   Amt,
   Lit,
+  Class,
+  ClassNegate,
+  ClassChar,
+  ClassChars,
+  ClassRange,
 
   Terminals_,
-  T_Rep,
   T_LPar,
   T_RPar,
+  T_LSquare,
+  T_RSquare,
+  T_Carat,
+  T_Dollar,
+  T_Hyphen,
+  T_Dot,
+  T_Rep,
+  T_Question,
   T_Esc,
   T_Bar,
   T_Reg,
   T_Eot,
 
   Actions_,
+  A_Dot,
   A_Mark,
   A_Alts,
   A_Cats,
@@ -53,10 +66,23 @@ constexpr auto lexChar(char c) {
     return T_LPar;
   case ')':
     return T_RPar;
+  case '[':
+    return T_LSquare;
+  case ']':
+    return T_RSquare;
+  case '^':
+    return T_Carat;
+  case '$':
+    return T_Dollar;
+  case '-':
+    return T_Hyphen;
+  case '.':
+    return T_Dot;
   case '*':
-  case '?':
   case '+':
     return T_Rep;
+  case '?':
+    return T_Question;
   case '|':
     return T_Bar;
   case '\\':
@@ -89,6 +115,36 @@ consteval Production operator>>=(Symbol head, Symbol body) {
   return Production{head, {body}};
 }
 
+/* https://pcre.org/original/doc/html/pcrepattern.html#SEC4
+There are two different sets of metacharacters: those that are recognized
+anywhere in the pattern except within square brackets, and those that are
+recognized within square brackets. Outside square brackets, the metacharacters
+are as follows:
+
+  \      general escape character with several uses
+  ^      assert start of string (or line, in multiline mode)
+  $      assert end of string (or line, in multiline mode)
+  .      match any character except newline (by default)
+  [      start character class definition
+  |      start of alternative branch
+  (      start subpattern
+  )      end subpattern
+  ?      extends the meaning of (
+         also 0 or 1 quantifier
+         also quantifier minimizer
+  *      0 or more quantifier
+  +      1 or more quantifier
+         also "possessive quantifier"
+  {      start min/max quantifier
+
+Part of a pattern that is in square brackets is called a "character class". In a
+character class the only metacharacters are: \      general escape character ^
+negate the class, but only if the first character
+  -      indicates character range
+  [      POSIX character class (only if followed by POSIX syntax)
+  ]      terminates the character class
+  */
+
 consteval auto productionsVector() {
   using enum Symbol;
   const auto epsilon = std::vector<Symbol>{};
@@ -102,9 +158,19 @@ consteval auto productionsVector() {
       Reps >>= Unt + Amt + Reps,
       Reps >>= epsilon,
       Unt >>= A_Lit + T_Reg,
+      Unt >>= A_Lit + T_RSquare,
+      Unt >>= A_Dot + T_Dot,
+      Unt >>= T_LSquare + Class + T_RSquare,
       Unt >>= T_Esc + A_Lit + Lit,
+      Class >>= ClassNegate + ClassChar + ClassRange + ClassChars,
+      ClassNegate >>= epsilon,
+      ClassNegate >>= T_Carat,
       Lit >>= T_Reg,
       Lit >>= T_Rep,
+      Lit >>= T_Question,
+      Lit >>= T_Dot,
+      Lit >>= T_LSquare,
+      Lit >>= T_RSquare,
       Lit >>= T_LPar,
       Lit >>= T_RPar,
       Lit >>= T_Esc,
@@ -159,7 +225,7 @@ template <InPlaceVector v> consteval auto view() {
   return std::span{v.data.data(), v.size()};
 }
 
-template <std::size_t N = 50, std::size_t M = 20>
+template <std::size_t N = 100, std::size_t M = 40>
 consteval auto packedProductions() {
   constexpr auto data = [] {
     auto vec = productionsVector();
