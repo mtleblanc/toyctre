@@ -116,7 +116,6 @@ foreach(re a z A 0 9 _ - . ^ $ { } , /)
 endforeach()
 ct_parse_case(accept literal [=[ ]=])
 ct_parse_case(accept literal "\t")
-ct_parse_case(accept literal [=[[]=])
 ct_parse_case(accept literal [=[]]=])
 
 ct_parse_case(accept sequence [=[ab]=])

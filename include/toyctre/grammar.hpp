@@ -22,10 +22,14 @@ enum class Symbol {
   Amt,
   Lit,
   Class,
-  ClassNegate,
-  ClassChar,
-  ClassChars,
-  ClassRange,
+  CPos,
+  CNeg,
+  CAny,
+  CReg,
+  CNoHyphen,
+  CNoCarat,
+  CPostChar,
+  CPostRange,
 
   Terminals_,
   T_LPar,
@@ -138,12 +142,32 @@ are as follows:
   {      start min/max quantifier
 
 Part of a pattern that is in square brackets is called a "character class". In a
-character class the only metacharacters are: \      general escape character ^
-negate the class, but only if the first character
+character class the only metacharacters are:
+  \      general escape character
+  ^      negate the class, but only if the first character
   -      indicates character range
   [      POSIX character class (only if followed by POSIX syntax)
   ]      terminates the character class
   */
+
+/*
+Character classes - ^ only meta if first character
+  - ] meta except first (possibly after ^)
+  - -  meta except first (possibly after ^) last, immediately after a-b range
+
+Class -> ^ NegClass
+Class -> PosClass
+
+NegClass -> (NonMeta | ^ | ] | -) PostCharClass
+PosClass -> (NonMeta | ] | -) PostCharClass
+
+PostCharClass -> NonDash PostCharClass
+PostCharClass -> epsilon
+PostCharClass -> - PostRangeClass
+PostRangeClass -> epsilon
+PostRangeClass -> Any PostCharClass
+
+*/
 
 consteval auto productionsVector() {
   using enum Symbol;
@@ -159,12 +183,34 @@ consteval auto productionsVector() {
       Reps >>= epsilon,
       Unt >>= A_Lit + T_Reg,
       Unt >>= A_Lit + T_RSquare,
-      Unt >>= A_Dot + T_Dot,
-      Unt >>= T_LSquare + Class + T_RSquare,
+      Unt >>= A_Lit + T_Dot,
+      Unt >>= A_Lit + T_Hyphen,
+      Unt >>= A_Lit + T_Carat,
+      Unt >>= A_Lit + T_Dollar,
       Unt >>= T_Esc + A_Lit + Lit,
-      Class >>= ClassNegate + ClassChar + ClassRange + ClassChars,
-      ClassNegate >>= epsilon,
-      ClassNegate >>= T_Carat,
+
+      Unt >>= T_LSquare + Class + T_RSquare,
+      Class >>= CPos,
+      Class >>= T_Carat + CNeg,
+      CPos >>= CNoCarat + CPostChar,
+      CNeg >>= CAny + CPostChar,
+      CPostChar >>= CNoHyphen + CPostChar,
+      CPostChar >>= epsilon,
+      CPostChar >>= T_Hyphen + CPostRange,
+      CPostRange >>= CAny + CPostChar,
+      CPostRange >>= epsilon,
+      CReg >>= T_Reg,
+      CReg >>= T_Esc + Lit,
+      CReg >>= T_LSquare,
+      CReg >>= T_LPar,
+      CReg >>= T_RPar,
+      CReg >>= T_Rep,
+      CReg >>= T_Question,
+      CNoCarat >>= CReg,
+      CNoCarat >>= T_Hyphen,
+      CNoHyphen >>= CReg,
+      CNoHyphen >>= T_Carat,
+
       Lit >>= T_Reg,
       Lit >>= T_Rep,
       Lit >>= T_Question,
@@ -177,6 +223,7 @@ consteval auto productionsVector() {
       Lit >>= T_Bar,
       Unt >>= T_LPar + A_Capture + Alt + A_Group + T_RPar,
       Amt >>= A_Rep + T_Rep,
+      Amt >>= A_Rep + T_Question,
       Amt >>= A_NoRep,
   };
 }
@@ -225,7 +272,7 @@ template <InPlaceVector v> consteval auto view() {
   return std::span{v.data.data(), v.size()};
 }
 
-template <std::size_t N = 100, std::size_t M = 40>
+template <std::size_t N = 200, std::size_t M = 60>
 consteval auto packedProductions() {
   constexpr auto data = [] {
     auto vec = productionsVector();
