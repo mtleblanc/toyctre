@@ -43,13 +43,13 @@ void checkRejects(std::initializer_list<std::string_view> regexes) {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("Parser: Single literal characters", "[parser][accept][literal]") {
-  checkAccepts({"a", "z", "A", "0", "9", " ", "_", "-", ".", "^", "$", "[", "]",
-                "{", "}", ",", "/", "\t"});
+  checkAccepts({"a", "z", "A", "0", "9", " ", "_", "-", ".", "^", "$", "]", "{",
+                "}", ",", "/", "\t"});
 }
 
 TEST_CASE("Parser: Literal sequences", "[parser][accept][literal]") {
   checkAccepts({"ab", "abc", "hello", "hello world", "a.b", "...", "a-z",
-                "[abc]", "{1,2}"});
+                "{1,2}"});
 }
 
 TEST_CASE("Parser: Alternation", "[parser][accept][alt]") {
@@ -126,6 +126,59 @@ TEST_CASE("Parser: Composite expressions", "[parser][accept]") {
                 "ab|c(d|e)*f?"});
 }
 
+// Character classes, following PCRE. Not covered yet: POSIX classes
+// ([:alpha:]), validity of a class escape as a range endpoint ([A-\d], [\d-z]),
+// and multi-character escapes such as \x{...}.
+
+TEST_CASE("Parser: Character classes", "[parser][accept][class]") {
+  checkAccepts({"[a]", "[abc]", "[a-z]", "[a-zA-Z0-9]", "[_a-z]", "[a-z_]",
+                "[a-a]", "[ -~]"});
+}
+
+TEST_CASE("Parser: Negated character classes", "[parser][accept][class]") {
+  checkAccepts({"[^a]", "[^abc]", "[^a-z]", "[^a-zA-Z]", "[^^]"});
+}
+
+TEST_CASE("Parser: Literal caret in a class", "[parser][accept][class]") {
+  checkAccepts({"[a^]", "[a^b]", "[^a^]", R"re([\^])re"});
+}
+
+TEST_CASE("Parser: Literal hyphen in a class", "[parser][accept][class]") {
+  // First (or first after ^), last, immediately after a range, or escaped.
+  checkAccepts({"[-]", "[-a]", "[a-]", "[^-]", "[^-a]", "[^a-]", "[a-c-e]",
+                "[a-c-]", R"re([\-])re", R"re([a\-z])re"});
+}
+
+TEST_CASE("Parser: Square brackets in a class", "[parser][accept][class]") {
+  // ] is literal as the first data character (after an optional ^).
+  // [W-]46] is the class {W, -} followed by the literal "46]".
+  checkAccepts({"[]]", "[]a]", "[^]]", "[^]a]", R"re([\]])re",
+                R"re([a\]])re", R"re([W-\]])re", "[W-]46]", "[a]]", "[[]",
+                "[a[]", "[[a]", R"re([\[])re"});
+}
+
+TEST_CASE("Parser: Other metacharacters are literal in a class",
+          "[parser][accept][class]") {
+  checkAccepts({"[.]", "[$]", "[|]", "[(]", "[)]", "[*]", "[+]", "[?]",
+                "[.$|()*+?]", "[(-+]"});
+}
+
+TEST_CASE("Parser: Escapes in a class", "[parser][accept][class][escape]") {
+  checkAccepts({R"re([\\])re", R"re([\n])re", R"re([\.])re", R"re([\d])re",
+                R"re([a\w])re", R"re([\t-\r])re", R"re([\(\)])re"});
+}
+
+TEST_CASE("Parser: Character classes in context", "[parser][accept][class]") {
+  checkAccepts({"a[bc]d", "[ab]|c", "c|[ab]", "(a[bc])", "([ab])", "[a][b]",
+                "[ab](c|d)[^e]", R"re(\[[a]\])re"});
+}
+
+TEST_CASE("Parser: Repeated character classes",
+          "[parser][accept][class][rep]") {
+  checkAccepts({"[ab]*", "[ab]+", "[ab]?", "[^a]*", "([ab])*",
+                "[a-z]+[0-9]*", "x[ab]?y"});
+}
+
 TEST_CASE("Parser: Long inputs", "[parser][accept][stress][slow]") {
   SECTION("long literal") {
     CHECK(parseRegex(std::string(1000, 'a')).accepted);
@@ -194,6 +247,21 @@ TEST_CASE("Parser: Stacked repetition operators", "[parser][reject][rep]") {
 TEST_CASE("Parser: Dangling escape", "[parser][reject][escape]") {
   checkRejects({R"re(\)re", R"re(a\)re", R"re(\\\)re", R"re((\)re",
                 R"re((a\)re", R"re(a|\)re"});
+}
+
+TEST_CASE("Parser: Unterminated character classes", "[parser][reject][class]") {
+  // ] first in a class is literal, so [] and [^] are unterminated.
+  checkRejects({"[", "[a", "[abc", "[^", "[^a", "[a-", "[a-z", "[]", "[^]",
+                R"re([\])re", R"re([a\])re", "a[b", "([a)", "[a]b["});
+}
+
+TEST_CASE("Parser: Out of order class ranges", "[parser][reject][class]") {
+  checkRejects({"[z-a]", "[b-a]"});
+}
+
+TEST_CASE("Parser: Stacked repetition of a class",
+          "[parser][reject][class][rep]") {
+  checkRejects({"[a]**"});
 }
 
 TEST_CASE("Parser: Valid prefix followed by garbage", "[parser][reject]") {
