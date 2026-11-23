@@ -20,16 +20,21 @@ enum class Symbol {
   Reps,
   Unt,
   Amt,
-  Lit,
   Class,
   CPos,
   CNeg,
-  CAny,
+  CPostChar,
+  CPostRange,
+  CEsc,
+
+  Reg,
+  Rep,
+  Meta,
+  Any,
   CReg,
   CNoHyphen,
   CNoCarat,
-  CPostChar,
-  CPostRange,
+  CAny,
 
   Terminals_,
   T_LPar,
@@ -57,6 +62,11 @@ enum class Symbol {
   A_Lit,
   A_Rep,
   A_NoRep,
+
+  A_Class,
+  A_CNegate,
+  A_CLit,
+  A_CRange,
 
   A_Reject,
 
@@ -150,25 +160,6 @@ character class the only metacharacters are:
   ]      terminates the character class
   */
 
-/*
-Character classes - ^ only meta if first character
-  - ] meta except first (possibly after ^)
-  - -  meta except first (possibly after ^) last, immediately after a-b range
-
-Class -> ^ NegClass
-Class -> PosClass
-
-NegClass -> (NonMeta | ^ | ] | -) PostCharClass
-PosClass -> (NonMeta | ] | -) PostCharClass
-
-PostCharClass -> NonDash PostCharClass
-PostCharClass -> epsilon
-PostCharClass -> - PostRangeClass
-PostRangeClass -> epsilon
-PostRangeClass -> Any PostCharClass
-
-*/
-
 consteval auto productionsVector() {
   using enum Symbol;
   const auto epsilon = std::vector<Symbol>{};
@@ -181,36 +172,62 @@ consteval auto productionsVector() {
       Cat >>= A_Mark + Unt + Amt + Reps + A_Cats,
       Reps >>= Unt + Amt + Reps,
       Reps >>= epsilon,
-      Unt >>= A_Lit + T_Reg,
-      Unt >>= A_Lit + T_RSquare,
-      Unt >>= A_Lit + T_Dot,
-      Unt >>= A_Lit + T_Hyphen,
-      Unt >>= A_Lit + T_Carat,
-      Unt >>= A_Lit + T_Dollar,
-      Unt >>= T_Esc + A_Lit + Lit,
+      Unt >>= A_Lit + Reg,
+      Unt >>= T_Esc + A_Lit + Any,
 
-      Unt >>= T_LSquare + Class + T_RSquare,
+      Unt >>= T_LSquare + A_Class + Class + T_RSquare,
       Class >>= CPos,
-      Class >>= T_Carat + CNeg,
-      CPos >>= CNoCarat + CPostChar,
-      CNeg >>= CAny + CPostChar,
-      CPos >>= T_RSquare + CPostChar,
-      CNeg >>= T_RSquare + CPostChar,
-      CPostChar >>= CNoHyphen + CPostChar,
+      Class >>= T_Carat + A_CNegate + CNeg,
+      CPos >>= A_CLit + CNoCarat + CPostChar,
+      CNeg >>= A_CLit + CAny + CPostChar,
+      CPos >>= A_CLit + T_RSquare + CPostChar,
+      CNeg >>= A_CLit + T_RSquare + CPostChar,
+      CPostChar >>= A_CLit + CNoHyphen + CPostChar,
       CPostChar >>= epsilon,
-      CPostChar >>= T_Hyphen + CPostRange,
-      CPostRange >>= CAny + CPostChar,
+      CPostChar >>= T_Hyphen + A_CRange + CPostRange,
+      CPostRange >>= A_CLit + CAny + CPostChar,
       CPostRange >>= epsilon,
+
+      CPos >>= CEsc,
+      CNeg >>= CEsc,
+      CPostChar >>= CEsc,
+      CPostRange >>= CEsc,
+      CEsc >>= T_Esc + A_CLit + Any + CPostChar,
+
+      Unt >>= T_LPar + A_Capture + Alt + A_Group + T_RPar,
+      Amt >>= A_Rep + T_Rep,
+      Amt >>= A_Rep + T_Question,
+      Amt >>= A_NoRep,
+
+      // Character classes
+
+      Reg >>= T_Reg,
+      Reg >>= T_RSquare,
+      Reg >>= T_Dot,
+      Reg >>= T_Hyphen,
+      Reg >>= T_Carat,
+      Reg >>= T_Dollar,
+
+      Rep >>= T_Rep,
+      Rep >>= T_Question,
+
+      Any >>= Reg,
+      Any >>= Rep,
+      Any >>= T_LSquare,
+      Any >>= T_LPar,
+      Any >>= T_RPar,
+      Any >>= T_Esc,
+      Any >>= T_Bar,
+
       CReg >>= T_Reg,
-      CReg >>= T_Esc + Lit,
       CReg >>= T_LSquare,
       CReg >>= T_LPar,
       CReg >>= T_RPar,
-      CReg >>= T_Rep,
-      CReg >>= T_Question,
+      CReg >>= T_Bar,
+      CReg >>= Rep,
       CReg >>= T_Dollar,
       CReg >>= T_Dot,
-      CReg >>= T_Bar,
+
       CNoCarat >>= CReg,
       CNoCarat >>= T_Hyphen,
       CNoHyphen >>= CReg,
@@ -218,23 +235,6 @@ consteval auto productionsVector() {
       CAny >>= CReg,
       CAny >>= T_Hyphen,
       CAny >>= T_Carat,
-
-      Lit >>= T_Reg,
-      Lit >>= T_Rep,
-      Lit >>= T_Question,
-      Lit >>= T_Dot,
-      Lit >>= T_Hyphen,
-      Lit >>= T_Carat,
-      Lit >>= T_LSquare,
-      Lit >>= T_RSquare,
-      Lit >>= T_LPar,
-      Lit >>= T_RPar,
-      Lit >>= T_Esc,
-      Lit >>= T_Bar,
-      Unt >>= T_LPar + A_Capture + Alt + A_Group + T_RPar,
-      Amt >>= A_Rep + T_Rep,
-      Amt >>= A_Rep + T_Question,
-      Amt >>= A_NoRep,
   };
 }
 
@@ -282,7 +282,7 @@ template <InPlaceVector v> consteval auto view() {
   return std::span{v.data.data(), v.size()};
 }
 
-template <std::size_t N = 200, std::size_t M = 60>
+template <std::size_t N = 400, std::size_t M = 100>
 consteval auto packedProductions() {
   constexpr auto data = [] {
     auto vec = productionsVector();

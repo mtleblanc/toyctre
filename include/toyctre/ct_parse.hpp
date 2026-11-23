@@ -188,6 +188,21 @@ struct NextNodes<A_NoRep, c,
   using type = Nodes<LiteralString<ds..., d>, Rs...>;
 };
 
+template <char c, typename... Rs> struct NextNodes<A_Class, c, Nodes<Rs...>> {
+  using type = Nodes<CharacterClass<true, Chars<>>, Rs...>;
+};
+
+template <char c, typename... Rs>
+struct NextNodes<A_CNegate, c, Nodes<CharacterClass<true, Chars<>>, Rs...>> {
+  using type = Nodes<CharacterClass<false, Chars<>>, Rs...>;
+};
+
+template <char c, bool p, char... cs, typename... Ras, typename... Rbs>
+struct NextNodes<A_CLit, c,
+                 Nodes<CharacterClass<p, Chars<cs...>, Ras...>, Rbs...>> {
+  using type = Nodes<CharacterClass<p, Chars<c, cs...>, Ras...>, Rbs...>;
+};
+
 template <Symbol a, typename P, typename S, typename N> struct DoAction {
   using type = State<P, S, next_nodes_t<a, P::current_char_v, N>>;
 };
@@ -195,6 +210,23 @@ template <Symbol a, typename P, typename S, typename N> struct DoAction {
 template <typename P, typename S, typename... Rs>
 struct DoAction<A_Capture, P, S, Nodes<Rs...>> {
   using type = State<P, S, Nodes<CaptureMark<P::capture_number_v>, Rs...>>;
+};
+
+template <typename P, typename S, bool p, char d, char... cs, typename... Ras,
+          typename... Rbs>
+  requires(d <= P::current_char_v)
+struct DoAction<A_CRange, P, S,
+                Nodes<CharacterClass<p, Chars<d, cs...>, Ras...>, Rbs...>> {
+  using type = Nodes<
+      CharacterClass<p, Chars<cs...>, Range<d, P::current_char_v>, Ras...>,
+      Rbs...>;
+};
+
+template <typename P, typename S, bool p, char... cs, typename... Ras,
+          typename... Rbs>
+struct DoAction<A_CRange, P, S,
+                Nodes<CharacterClass<p, Chars<cs...>, Ras...>, Rbs...>> {
+  using type = ParseFailure;
 };
 
 template <typename P, typename S, typename N>

@@ -35,34 +35,28 @@ template <char... cs> struct LiteralString {
 template <char... cs>
 inline constexpr auto is_regex_v<LiteralString<cs...>> = true;
 
-template <bool matches, char... cs> struct CharacterClass {};
-template <char... cs>
-inline constexpr auto is_regex_v<CharacterClass<cs...>> = true;
-
-template <bool matches, char... cs> struct CharacterRangeClass {};
-template <char... cs>
-inline constexpr auto is_regex_v<CharacterRangeClass<cs...>> = true;
-
-template <typename T> struct Negate;
-template <bool matches, char... cs>
-struct Negate<CharacterClass<matches, cs...>> {
-  using type = CharacterClass<!matches, cs...>;
+template <char... cs> struct Chars;
+template <char s, char e> struct Range {
+  static constexpr auto matches(char c) { return c >= s && c <= e; }
 };
 
+template <bool positive, typename Cs, typename... Rs> struct CharacterClass {};
+template <bool positive, typename C, typename... Rs>
+inline constexpr auto is_regex_v<CharacterClass<positive, C, Rs...>> = true;
+
 template <typename T> struct Negate;
-template <bool matches, char... cs>
-struct Negate<CharacterRangeClass<matches, cs...>> {
-  using type = CharacterRangeClass<!matches, cs...>;
+template <bool positive, typename C, typename Rs>
+struct Negate<CharacterClass<positive, C, Rs>> {
+  using type = CharacterClass<!positive, C, Rs>;
 };
 
 struct CharacterClasses {
-  using dot = CharacterClass<false, '\n'>;
-  using decimal = CharacterRangeClass<true, '0', '9'>;
-  using word =
-      CharacterRangeClass<true, '0', '9', 'A', 'Z', '_', '_', 'a', 'z'>;
-  using hspace = CharacterClass<true, 0x20, 0x09>;
-  using vspace = CharacterRangeClass<true, 0x0A, 0x0D>;
-  using space = CharacterClass<true, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20>;
+  using dot = CharacterClass<false, Chars<'\n'>>;
+  using decimal = CharacterClass<true, Chars<>, Range<'0', '9'>>;
+  using word = CharacterClass<true, Chars<'_'>, Range<'0', '9'>,
+                              Range<'A', 'Z'>, Range<'a', 'z'>>;
+  using hspace = CharacterClass<true, Chars<0x20, 0x09>>;
+  using vspace = CharacterClass<true, Chars<>, Range<0x0A, 0x0D>>;
 };
 
 } // namespace re::ctn
