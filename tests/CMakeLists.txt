@@ -5,6 +5,7 @@ add_executable(toyctre_tests
   ct_matcher_groups_test.cpp
   ct_matcher_stress_test.cpp
   ct_capture_test.cpp
+  ct_matcher_class_test.cpp
 )
 
 target_link_libraries(toyctre_tests PRIVATE core Catch2::Catch2WithMain)

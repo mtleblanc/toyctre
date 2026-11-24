@@ -23,6 +23,8 @@
 //   ct_matcher_test.cpp         literals, alternation, repetition
 //   ct_matcher_groups_test.cpp  groups, precedence, escapes, composite, bytes
 //   ct_matcher_stress_test.cpp  long/pathological patterns, differential tests
+//   ct_matcher_class_test.cpp   character classes
+//   ct_matcher_class_test.cpp   character classes
 
 namespace re {
 namespace {

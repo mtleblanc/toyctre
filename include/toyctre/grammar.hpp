@@ -24,6 +24,7 @@ enum class Symbol {
   CPos,
   CNeg,
   CPostChar,
+  CPostHpyen,
   CPostRange,
   CEsc,
 
@@ -67,6 +68,7 @@ enum class Symbol {
   A_CNegate,
   A_CLit,
   A_CRange,
+  A_CHyphen,
 
   A_Reject,
 
@@ -113,8 +115,7 @@ struct Production {
   Symbol head{};
   std::vector<Symbol> body;
 
-  consteval Production(Symbol head, std::vector<Symbol> body)
-      : head{head}, body{std::move(body)} {}
+  consteval Production(Symbol head, std::vector<Symbol> body) : head{head}, body{std::move(body)} {}
 };
 
 consteval std::vector<Symbol> operator+(Symbol l, Symbol r) { return {l, r}; };
@@ -122,12 +123,8 @@ consteval std::vector<Symbol> operator+(std::vector<Symbol> l, Symbol r) {
   l.push_back(r);
   return l;
 }
-consteval Production operator>>=(Symbol head, std::vector<Symbol> body) {
-  return Production{head, std::move(body)};
-}
-consteval Production operator>>=(Symbol head, Symbol body) {
-  return Production{head, {body}};
-}
+consteval Production operator>>=(Symbol head, std::vector<Symbol> body) { return Production{head, std::move(body)}; }
+consteval Production operator>>=(Symbol head, Symbol body) { return Production{head, {body}}; }
 
 /* https://pcre.org/original/doc/html/pcrepattern.html#SEC4
 There are two different sets of metacharacters: those that are recognized
@@ -184,14 +181,16 @@ consteval auto productionsVector() {
       CNeg >>= A_CLit + T_RSquare + CPostChar,
       CPostChar >>= A_CLit + CNoHyphen + CPostChar,
       CPostChar >>= epsilon,
-      CPostChar >>= T_Hyphen + A_CRange + CPostRange,
+      CPostChar >>= T_Hyphen + CPostHpyen,
+      CPostHpyen >>= A_CRange + CAny + CPostRange,
+      CPostHpyen >>= A_CHyphen,
       CPostRange >>= A_CLit + CAny + CPostChar,
       CPostRange >>= epsilon,
 
       CPos >>= CEsc,
       CNeg >>= CEsc,
       CPostChar >>= CEsc,
-      CPostRange >>= CEsc,
+      CPostHpyen >>= CEsc,
       CEsc >>= T_Esc + A_CLit + Any + CPostChar,
 
       Unt >>= T_LPar + A_Capture + Alt + A_Group + T_RPar,
@@ -249,8 +248,7 @@ template <typename T, size_t N> struct InPlaceVector {
 
   consteval InPlaceVector() = default;
 
-  template <size_t M>
-  consteval InPlaceVector(const InPlaceVector<T, M> &o) : used{o.used} {
+  template <size_t M> consteval InPlaceVector(const InPlaceVector<T, M> &o) : used{o.used} {
     if (used > N) {
       throw std::out_of_range{"More elements in source than capacity"};
     }
@@ -258,9 +256,7 @@ template <typename T, size_t N> struct InPlaceVector {
   }
 
   [[nodiscard]] constexpr auto begin() const noexcept { return data.begin(); }
-  [[nodiscard]] constexpr auto end() const noexcept {
-    return std::next(data.begin(), static_cast<ptrdiff_t>(used));
-  }
+  [[nodiscard]] constexpr auto end() const noexcept { return std::next(data.begin(), static_cast<ptrdiff_t>(used)); }
   [[nodiscard]] constexpr auto size() const noexcept { return used; }
 
   constexpr auto push_back(auto &&v) {
@@ -270,20 +266,14 @@ template <typename T, size_t N> struct InPlaceVector {
     data[used++] = std::forward<decltype(v)>(v);
   }
 
-  template <typename Self>
-  constexpr auto &&operator[](this Self &&self, size_t i) {
-    return std::forward<Self>(self).data[i];
-  }
+  template <typename Self> constexpr auto &&operator[](this Self &&self, size_t i) { return std::forward<Self>(self).data[i]; }
 };
 
 // template parameters have static storage duration, so it's valid to return a
 // view of them
-template <InPlaceVector v> consteval auto view() {
-  return std::span{v.data.data(), v.size()};
-}
+template <InPlaceVector v> consteval auto view() { return std::span{v.data.data(), v.size()}; }
 
-template <std::size_t N = 400, std::size_t M = 100>
-consteval auto packedProductions() {
+template <std::size_t N = 400, std::size_t M = 100> consteval auto packedProductions() {
   constexpr auto data = [] {
     auto vec = productionsVector();
     auto oversized = InPlaceVector<Symbol, N>{};
@@ -297,8 +287,7 @@ consteval auto packedProductions() {
       lengths[i] = prod.size();
       it = std::copy(prod.begin(), prod.end(), it);
     }
-    return std::make_tuple(vec.size(), oversized.size(), oversized, lengths,
-                           heads);
+    return std::make_tuple(vec.size(), oversized.size(), oversized, lengths, heads);
   }();
   constexpr auto productionCount = std::get<0>(data);
   constexpr auto bodyCount = std::get<1>(data);
@@ -328,17 +317,12 @@ constexpr auto NSymbols = static_cast<size_t>(Symbol::Size_);
 template <typename E, typename V, size_t N> struct EnumIndexedArray {
   std::array<V, N> elems{};
 
-  template <typename Self> constexpr auto &&operator[](this Self &&self, E e) {
-    return std::forward<Self>(self).elems[static_cast<size_t>(e)];
-  }
+  template <typename Self> constexpr auto &&operator[](this Self &&self, E e) { return std::forward<Self>(self).elems[static_cast<size_t>(e)]; }
 };
 
 inline constexpr auto table = []() {
-  using LL1Table =
-      EnumIndexedArray<Symbol, EnumIndexedArray<Symbol, size_t, NSymbols>,
-                       NSymbols>;
-  using SetTable =
-      EnumIndexedArray<Symbol, std::bitset<NSymbols + 1>, NSymbols>;
+  using LL1Table = EnumIndexedArray<Symbol, EnumIndexedArray<Symbol, size_t, NSymbols>, NSymbols>;
+  using SetTable = EnumIndexedArray<Symbol, std::bitset<NSymbols + 1>, NSymbols>;
 
   constexpr auto epsilon = NSymbols;
   constexpr auto terminals = static_cast<size_t>(Symbol::Terminals_);
@@ -449,17 +433,14 @@ inline constexpr auto table = []() {
 template <Symbol nt, Symbol la> struct Produce {
   static constexpr auto production = table[nt][la];
   static constexpr auto body = productions[production].body;
-  template <template <Symbol...> class List, size_t... Is>
-  static List<body[Is]...> f(std::index_sequence<Is...>);
-  template <template <Symbol...> class List>
-  using type = decltype(f<List>(std::make_index_sequence<body.size()>{}));
+  template <template <Symbol...> class List, size_t... Is> static List<body[Is]...> f(std::index_sequence<Is...>);
+  template <template <Symbol...> class List> using type = decltype(f<List>(std::make_index_sequence<body.size()>{}));
 };
 
 } // namespace detail
 
 using detail::table;
 
-template <template <Symbol...> class List, Symbol nt, Symbol la>
-using produce_list_t = typename detail::Produce<nt, la>::template type<List>;
+template <template <Symbol...> class List, Symbol nt, Symbol la> using produce_list_t = typename detail::Produce<nt, la>::template type<List>;
 
 } // namespace re::grammar
