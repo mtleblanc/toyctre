@@ -273,29 +273,4 @@ template <IsResult S, size_t N> struct IterTilResult<S, N> {
 };
 } // namespace iterate
 
-// namespace test {
-// using namespace progress;
-// using enum grammar::Symbol;
-// using namespace iterate;
-// using S0 = State<Progress<"[a-c-e]", 0>, Sentinels<Unt, T_Eot>, Nodes<>>;
-// using S01 = iter_t<S0, 3>;
-// using S1 = iter_t<S01, 3>;
-// using S2 = iter_t<S1, 0>;
-// using S3 = iter_t<S2, 0>;
-// using S4 = iter_t<S3, 0>;
-// using S5 = iter_t<S4, 0>;
-// using S6 = iter_t<S5, 0>;
-// using S7 = iter_t<S6, 0>;
-// using S8 = iter_t<S7, 0>;
-//
-// static_assert(S1::foo);
-// static_assert(S2::foo);
-// static_assert(S3::foo);
-// static_assert(S4::foo);
-// static_assert(S5::foo);
-// static_assert(S6::foo);
-// static_assert(S7::foo);
-// static_assert(S8::foo);
-// } // namespace test
-//
 } // namespace re::ct

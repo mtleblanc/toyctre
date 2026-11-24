@@ -190,7 +190,7 @@ consteval auto productionsVector() {
       CPos >>= CEsc,
       CNeg >>= CEsc,
       CPostChar >>= CEsc,
-      CPostHpyen >>= CEsc,
+      CPostHpyen >>= T_Esc + A_CRange + Any + CPostRange,
       CEsc >>= T_Esc + A_CLit + Any + CPostChar,
 
       Unt >>= T_LPar + A_Capture + Alt + A_Group + T_RPar,

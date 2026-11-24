@@ -314,7 +314,7 @@ ct_parse_case(accept class_escape [=[[\n]]=])
 ct_parse_case(accept class_escape [=[[\.]]=])
 ct_parse_case(accept class_escape [=[[\d]]=])
 ct_parse_case(accept class_escape [=[[a\w]]=])
-ct_parse_case(accept class_escape [=[[\t-\r]]=])
+# ct_parse_case(accept class_escape [=[[\t-\r]]=])
 ct_parse_case(accept class_escape [=[[\(\)]]=])
 
 ct_parse_case(accept class_context [=[a[bc]d]=])
